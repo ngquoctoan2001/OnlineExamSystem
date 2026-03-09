@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EPPlus" Version="7.0.11" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="6.4.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\OnlineExamSystem.Domain\OnlineExamSystem.Domain.csproj" />
+    <ProjectReference Include="..\OnlineExamSystem.Application\OnlineExamSystem.Application.csproj" />
+    <ProjectReference Include="..\OnlineExamSystem.Infrastructure\OnlineExamSystem.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,47 @@
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
+using OnlineExamSystem.Infrastructure.Data;
+using OnlineExamSystem.Infrastructure.Repositories;
+using OnlineExamSystem.Infrastructure.Services;
+
+namespace OnlineExamSystem.Infrastructure;
+
+public static class ServiceCollectionExtensions
+{
+    public static IServiceCollection AddInfrastructure(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        // Database
+        services.AddDbContext<ApplicationDbContext>(options =>
+        {
+            var connectionString = configuration.GetConnectionString("DefaultConnection");
+            options.UseNpgsql(
+                connectionString,
+                optionsBuilder =>
+                {
+                    optionsBuilder.MigrationsAssembly("OnlineExamSystem.Infrastructure");
+                    optionsBuilder.EnableRetryOnFailure(maxRetryCount: 5);
+                });
+
+            if (!string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase))
+            {
+                options.EnableDetailedErrors();
+                options.EnableSensitiveDataLogging();
+            }
+        });
+
+        // Services
+        services.AddScoped<IJwtTokenProvider, JwtTokenProvider>();
+        services.AddScoped<IPasswordHasher, PasswordHasher>();
+        services.AddScoped<IAuthService, AuthService>();
+
+        // Repositories
+        services.AddScoped<IUserRepository, UserRepository>();
+        services.AddScoped<IUserSessionRepository, UserSessionRepository>();
+        services.AddScoped<IUserLoginLogRepository, UserLoginLogRepository>();
+
+        return services;
+    }
+}
