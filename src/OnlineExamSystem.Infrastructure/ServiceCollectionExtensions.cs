@@ -36,11 +36,13 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IJwtTokenProvider, JwtTokenProvider>();
         services.AddScoped<IPasswordHasher, PasswordHasher>();
         services.AddScoped<IAuthService, AuthService>();
+        services.AddScoped<IDataSeeder, DataSeeder>();
 
         // Repositories
         services.AddScoped<IUserRepository, UserRepository>();
         services.AddScoped<IUserSessionRepository, UserSessionRepository>();
         services.AddScoped<IUserLoginLogRepository, UserLoginLogRepository>();
+        services.AddScoped<IUserManagementRepository, UserManagementRepository>();
 
         return services;
     }

@@ -9,14 +9,18 @@ namespace OnlineExamSystem.API.Controllers;
 [ApiController]
 [Route("api/exam-attempts")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Exam Attempts")]
 public class ExamAttemptsController : ControllerBase
 {
     private readonly IExamAttemptService _examAttemptService;
+    private readonly IAnswerService _answerService;
     private readonly ILogger<ExamAttemptsController> _logger;
 
-    public ExamAttemptsController(IExamAttemptService examAttemptService, ILogger<ExamAttemptsController> logger)
+    public ExamAttemptsController(IExamAttemptService examAttemptService, IAnswerService answerService, ILogger<ExamAttemptsController> logger)
     {
         _examAttemptService = examAttemptService;
+        _answerService = answerService;
         _logger = logger;
     }
 
@@ -89,5 +93,28 @@ public class ExamAttemptsController : ControllerBase
             return BadRequest(new ResponseResult<SubmitExamAttemptResponse> { Success = false, Message = message });
 
         return Ok(new ResponseResult<SubmitExamAttemptResponse> { Success = true, Message = message, Data = data });
+    }
+
+    [HttpGet("{id}/questions")]
+    public async Task<ActionResult<ResponseResult<List<AttemptQuestionResponse>>>> GetQuestions(long id)
+    {
+        var (success, message, data) = await _answerService.GetAttemptQuestionsAsync(id);
+        if (!success)
+            return NotFound(new ResponseResult<List<AttemptQuestionResponse>> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<List<AttemptQuestionResponse>> { Success = true, Message = message, Data = data });
+    }
+
+    [HttpPost("{id}/violations")]
+    public async Task<ActionResult<ResponseResult<ViolationResponse>>> LogViolation(long id, [FromBody] LogViolationRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<ViolationResponse> { Success = false, Message = "Invalid request" });
+
+        var (success, message, data) = await _examAttemptService.LogViolationAsync(id, request);
+        if (!success)
+            return BadRequest(new ResponseResult<ViolationResponse> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<ViolationResponse> { Success = true, Message = message, Data = data });
     }
 }

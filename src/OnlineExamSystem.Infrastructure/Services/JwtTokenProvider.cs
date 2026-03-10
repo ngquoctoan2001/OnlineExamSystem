@@ -45,6 +45,16 @@ public class JwtTokenProvider : IJwtTokenProvider
             new("fullname", user.FullName)
         };
 
+        // Add role claims so [Authorize(Roles = "...")] works
+        if (user.UserRoles != null)
+        {
+            foreach (var userRole in user.UserRoles)
+            {
+                if (userRole.Role?.Name != null)
+                    claims.Add(new Claim(ClaimTypes.Role, userRole.Role.Name));
+            }
+        }
+
         var token = new JwtSecurityToken(
             issuer: issuer,
             audience: audience,

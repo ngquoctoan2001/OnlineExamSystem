@@ -5,9 +5,6 @@ namespace OnlineExamSystem.Application.DTOs;
 /// </summary>
 public class CreateClassRequest
 {
-    /// <summary>School ID</summary>
-    public long SchoolId { get; set; }
-
     /// <summary>Class code (unique)</summary>
     public string Code { get; set; } = string.Empty;
 
@@ -16,6 +13,9 @@ public class CreateClassRequest
 
     /// <summary>Grade level (10, 11, 12)</summary>
     public int Grade { get; set; }
+
+    /// <summary>Homeroom teacher ID (optional)</summary>
+    public long? HomeroomTeacherId { get; set; }
 }
 
 /// <summary>
@@ -28,6 +28,9 @@ public class UpdateClassRequest
 
     /// <summary>Grade level</summary>
     public int? Grade { get; set; }
+
+    /// <summary>Homeroom teacher ID</summary>
+    public long? HomeroomTeacherId { get; set; }
 }
 
 /// <summary>
@@ -38,9 +41,6 @@ public class ClassResponse
     /// <summary>Class ID</summary>
     public long Id { get; set; }
 
-    /// <summary>School ID</summary>
-    public long SchoolId { get; set; }
-
     /// <summary>Class code</summary>
     public string Code { get; set; } = string.Empty;
 
@@ -49,6 +49,12 @@ public class ClassResponse
 
     /// <summary>Grade level</summary>
     public int Grade { get; set; }
+
+    /// <summary>Homeroom teacher ID</summary>
+    public long? HomeroomTeacherId { get; set; }
+
+    /// <summary>Homeroom teacher name</summary>
+    public string? HomeroomTeacherName { get; set; }
 
     /// <summary>Number of students</summary>
     public int StudentCount { get; set; }

@@ -9,22 +9,28 @@ using OnlineExamSystem.Infrastructure.Repositories;
 /// <summary>
 /// Exam service implementation with business logic
 /// </summary>
-public class ExamService : IExamService
+public class ExamService : OnlineExamSystem.Application.Services.IExamService
 {
     private readonly IExamRepository _examRepository;
     private readonly ITeacherRepository _teacherRepository;
     private readonly ISubjectRepository _subjectRepository;
+    private readonly IExamSettingsRepository _examSettingsRepository;
+    private readonly IActivityLogService _activityLog;
     private readonly ILogger<ExamService> _logger;
 
     public ExamService(
         IExamRepository examRepository,
         ITeacherRepository teacherRepository,
         ISubjectRepository subjectRepository,
+        IExamSettingsRepository examSettingsRepository,
+        IActivityLogService activityLog,
         ILogger<ExamService> logger)
     {
         _examRepository = examRepository;
         _teacherRepository = teacherRepository;
         _subjectRepository = subjectRepository;
+        _examSettingsRepository = examSettingsRepository;
+        _activityLog = activityLog;
         _logger = logger;
     }
 
@@ -182,6 +188,7 @@ public class ExamService : IExamService
             var response = MapToExamResponse(createdExam);
 
             _logger.LogInformation("Exam created: {ExamId}", createdExam.Id);
+            await _activityLog.LogAsync(request.CreatedBy, "EXAM_CREATED", "Exam", createdExam.Id, $"Title: {createdExam.Title}");
             return (true, "Exam created successfully", response);
         }
         catch (Exception ex)
@@ -259,11 +266,200 @@ public class ExamService : IExamService
                 return (false, "Failed to delete exam");
 
             _logger.LogInformation("Exam deleted: {ExamId}", id);
+            await _activityLog.LogAsync(null, "EXAM_DELETED", "Exam", id);
             return (true, "Exam deleted successfully");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error deleting exam {ExamId}", id);
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool Success, string Message, ExamSettingsResponse? Data)> ConfigureSettingsAsync(long examId, ConfigureExamSettingsRequest request)
+    {
+        try
+        {
+            // Verify exam exists
+            var exam = await _examRepository.GetByIdAsync(examId);
+            if (exam == null)
+                return (false, "Exam not found", null);
+
+            // Get or create settings
+            var settings = await _examSettingsRepository.GetByExamIdAsync(examId);
+            
+            if (settings == null)
+            {
+                settings = new ExamSetting
+                {
+                    ExamId = examId,
+                    ShuffleQuestions = request.ShuffleQuestions,
+                    ShuffleAnswers = request.ShuffleAnswers,
+                    ShowResultImmediately = request.ShowResultImmediately,
+                    AllowReview = request.AllowReview
+                };
+                settings = await _examSettingsRepository.CreateAsync(settings);
+            }
+            else
+            {
+                settings.ShuffleQuestions = request.ShuffleQuestions;
+                settings.ShuffleAnswers = request.ShuffleAnswers;
+                settings.ShowResultImmediately = request.ShowResultImmediately;
+                settings.AllowReview = request.AllowReview;
+                settings = await _examSettingsRepository.UpdateAsync(settings);
+            }
+
+            var response = MapToSettingsResponse(settings);
+            _logger.LogInformation("Exam settings configured: {ExamId}", examId);
+            return (true, "Settings configured successfully", response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error configuring exam settings {ExamId}", examId);
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, ExamSettingsResponse? Data)> GetSettingsAsync(long examId)
+    {
+        try
+        {
+            // Verify exam exists
+            var exam = await _examRepository.GetByIdAsync(examId);
+            if (exam == null)
+                return (false, "Exam not found", null);
+
+            var settings = await _examSettingsRepository.GetByExamIdAsync(examId);
+            
+            // If no settings exist yet, return defaults
+            if (settings == null)
+            {
+                var defaultSettings = new ExamSetting
+                {
+                    ExamId = examId,
+                    ShuffleQuestions = false,
+                    ShuffleAnswers = false,
+                    ShowResultImmediately = false,
+                    AllowReview = false
+                };
+                return (true, "Default settings", MapToSettingsResponse(defaultSettings));
+            }
+
+            var response = MapToSettingsResponse(settings);
+            return (true, "Success", response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting exam settings {ExamId}", examId);
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, ActivateExamResponse? Data)> ActivateExamAsync(long examId)
+    {
+        try
+        {
+            var exam = await _examRepository.GetByIdAsync(examId);
+            if (exam == null)
+                return (false, "Exam not found", null);
+
+            // Can only activate DRAFT exams
+            if (exam.Status != "DRAFT")
+                return (false, "Only DRAFT exams can be activated", null);
+
+            // Verify exam has start and end times in future or at least valid
+            if (exam.EndTime <= DateTime.UtcNow)
+                return (false, "Exam end time must be in the future", null);
+
+            exam.Status = "ACTIVE";
+            var updatedExam = await _examRepository.UpdateAsync(exam);
+
+            var response = new ActivateExamResponse
+            {
+                ExamId = updatedExam.Id,
+                Status = updatedExam.Status,
+                ActivatedAt = DateTime.UtcNow,
+                Message = "Exam activated successfully"
+            };
+
+            _logger.LogInformation("Exam activated: {ExamId}", examId);
+            return (true, "Exam activated successfully", response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error activating exam {ExamId}", examId);
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> CloseExamAsync(long examId)
+    {
+        try
+        {
+            var exam = await _examRepository.GetByIdAsync(examId);
+            if (exam == null)
+                return (false, "Exam not found");
+
+            // Can only close ACTIVE exams
+            if (exam.Status != "ACTIVE")
+                return (false, "Only ACTIVE exams can be closed");
+
+            exam.Status = "CLOSED";
+            await _examRepository.UpdateAsync(exam);
+
+            _logger.LogInformation("Exam closed: {ExamId}", examId);
+            return (true, "Exam closed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error closing exam {ExamId}", examId);
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool Success, string Message)> ChangeStatusAsync(long examId, string newStatus)
+    {
+        try
+        {
+            var validStatuses = new[] { "DRAFT", "ACTIVE", "CLOSED" };
+            if (!validStatuses.Contains(newStatus.ToUpper()))
+                return (false, "Invalid status. Must be DRAFT, ACTIVE, or CLOSED");
+
+            var exam = await _examRepository.GetByIdAsync(examId);
+            if (exam == null)
+                return (false, "Exam not found");
+
+            // Validate status transitions
+            var currentStatus = exam.Status.ToUpper();
+            var targetStatus = newStatus.ToUpper();
+
+            // Allowed transitions: DRAFT -> ACTIVE, ACTIVE -> CLOSED
+            if (currentStatus == "DRAFT" && targetStatus == "ACTIVE")
+            {
+                exam.Status = "ACTIVE";
+                await _examRepository.UpdateAsync(exam);
+                _logger.LogInformation("Exam status changed DRAFT->ACTIVE: {ExamId}", examId);
+                return (true, "Exam activated");
+            }
+            else if (currentStatus == "ACTIVE" && targetStatus == "CLOSED")
+            {
+                exam.Status = "CLOSED";
+                await _examRepository.UpdateAsync(exam);
+                _logger.LogInformation("Exam status changed ACTIVE->CLOSED: {ExamId}", examId);
+                return (true, "Exam closed");
+            }
+            else if (currentStatus == targetStatus)
+            {
+                return (true, $"Exam already in {targetStatus} status");
+            }
+            else
+            {
+                return (false, $"Cannot transition from {currentStatus} to {targetStatus}");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error changing exam status {ExamId}", examId);
             return (false, $"Error: {ex.Message}");
         }
     }
@@ -283,6 +479,21 @@ public class ExamService : IExamService
             Description = exam.Description,
             Status = exam.Status,
             CreatedAt = exam.CreatedAt
+        };
+    }
+
+    private ExamSettingsResponse MapToSettingsResponse(ExamSetting settings)
+    {
+        return new ExamSettingsResponse
+        {
+            Id = settings.Id,
+            ExamId = settings.ExamId,
+            ShuffleQuestions = settings.ShuffleQuestions,
+            ShuffleAnswers = settings.ShuffleAnswers,
+            ShowResultImmediately = settings.ShowResultImmediately,
+            AllowReview = settings.AllowReview,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
         };
     }
 }

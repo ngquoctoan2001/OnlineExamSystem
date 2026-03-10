@@ -1,18 +1,34 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace OnlineExamSystem.Application.DTOs;
 
 public class CreateQuestionRequest
 {
+    [Range(1, long.MaxValue)]
     public long SubjectId { get; set; }
+
+    [Range(1, long.MaxValue)]
     public long QuestionTypeId { get; set; }
+
+    [Required]
+    [MaxLength(5000)]
     public string Content { get; set; } = null!;
+
+    [RegularExpression("^(EASY|MEDIUM|HARD)$", ErrorMessage = "Difficulty must be EASY, MEDIUM, or HARD")]
     public string Difficulty { get; set; } = "MEDIUM";
+
     public List<CreateQuestionOptionRequest> Options { get; set; } = new();
 }
 
 public class UpdateQuestionRequest
 {
+    [Required]
+    [MaxLength(5000)]
     public string Content { get; set; } = null!;
+
+    [RegularExpression("^(EASY|MEDIUM|HARD)$", ErrorMessage = "Difficulty must be EASY, MEDIUM, or HARD")]
     public string Difficulty { get; set; } = "MEDIUM";
+
     public bool IsPublished { get; set; }
     public List<CreateQuestionOptionRequest> Options { get; set; } = new();
 }
@@ -70,4 +86,18 @@ public class QuestionOptionResponse
     public string Content { get; set; } = null!;
     public bool IsCorrect { get; set; }
     public int OrderIndex { get; set; }
+}
+
+public class CreateTagRequest
+{
+    public string Name { get; set; } = null!;
+    public string? Description { get; set; }
+}
+
+public class TagResponse
+{
+    public long Id { get; set; }
+    public string Name { get; set; } = null!;
+    public string? Description { get; set; }
+    public DateTime CreatedAt { get; set; }
 }

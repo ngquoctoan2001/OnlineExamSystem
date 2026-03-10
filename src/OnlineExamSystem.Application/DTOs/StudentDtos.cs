@@ -1,26 +1,32 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace OnlineExamSystem.Application.DTOs;
 
-/// <summary>
-/// DTO for creating a new student
-/// </summary>
 public class CreateStudentRequest
 {
-    /// <summary>Username (will create User account)</summary>
+    [Required]
+    [MaxLength(100)]
     public string Username { get; set; } = string.Empty;
 
-    /// <summary>Email address</summary>
+    [Required]
+    [EmailAddress]
+    [MaxLength(200)]
     public string Email { get; set; } = string.Empty;
 
-    /// <summary>Password for initial account</summary>
+    [Required]
+    [MinLength(6)]
+    [MaxLength(200)]
     public string Password { get; set; } = string.Empty;
 
-    /// <summary>Full name of student</summary>
+    [Required]
+    [MaxLength(200)]
     public string FullName { get; set; } = string.Empty;
 
-    /// <summary>Student code/ID (unique)</summary>
+    [Required]
+    [MaxLength(50)]
     public string StudentCode { get; set; } = string.Empty;
 
-    /// <summary>Roll number (class position)</summary>
+    [MaxLength(50)]
     public string RollNumber { get; set; } = string.Empty;
 }
 

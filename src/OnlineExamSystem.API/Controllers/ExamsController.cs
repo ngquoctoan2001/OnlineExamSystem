@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
 using OnlineExamSystem.Application.Services;
+using OnlineExamSystem.Infrastructure.Repositories;
 
 /// <summary>
 /// Exam management API endpoints
@@ -12,14 +13,30 @@ using OnlineExamSystem.Application.Services;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Exams")]
 public class ExamsController : ControllerBase
 {
     private readonly IExamService _examService;
+    private readonly IExamRepository _examRepository;
+    private readonly IExamClassRepository _examClassRepository;
+    private readonly IStudentRepository _studentRepository;
+    private readonly IExamAttemptRepository _examAttemptRepository;
     private readonly ILogger<ExamsController> _logger;
 
-    public ExamsController(IExamService examService, ILogger<ExamsController> logger)
+    public ExamsController(
+        IExamService examService,
+        IExamRepository examRepository,
+        IExamClassRepository examClassRepository,
+        IStudentRepository studentRepository,
+        IExamAttemptRepository examAttemptRepository,
+        ILogger<ExamsController> logger)
     {
         _examService = examService;
+        _examRepository = examRepository;
+        _examClassRepository = examClassRepository;
+        _studentRepository = studentRepository;
+        _examAttemptRepository = examAttemptRepository;
         _logger = logger;
     }
 
@@ -141,6 +158,152 @@ public class ExamsController : ControllerBase
     }
 
     /// <summary>
+    /// Get exams assigned to a class
+    /// </summary>
+    [HttpGet("class/{classId}")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
+    public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetByClass(long classId)
+    {
+        var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+        var exams = new List<ExamResponse>();
+
+        foreach (var examClass in examClasses)
+        {
+            var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
+            if (exam == null)
+                continue;
+
+            exams.Add(new ExamResponse
+            {
+                Id = exam.Id,
+                Title = exam.Title,
+                SubjectId = exam.SubjectId,
+                SubjectName = exam.Subject?.Name ?? string.Empty,
+                CreatedBy = exam.CreatedBy,
+                DurationMinutes = exam.DurationMinutes,
+                StartTime = exam.StartTime,
+                EndTime = exam.EndTime,
+                Description = exam.Description,
+                Status = exam.Status,
+                CreatedAt = exam.CreatedAt
+            });
+        }
+
+        return Ok(new ResponseResult<List<ExamResponse>>
+        {
+            Success = true,
+            Message = "Success",
+            Data = exams.OrderByDescending(e => e.StartTime).ToList()
+        });
+    }
+
+    /// <summary>
+    /// Get available exams for student (currently active)
+    /// </summary>
+    [HttpGet("student/{studentId}/available")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
+    public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetAvailableForStudent(long studentId)
+    {
+        var student = await _studentRepository.GetByIdAsync(studentId);
+        if (student == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Student not found" });
+
+        var classIds = (await _studentRepository.GetStudentClassesAsync(studentId)).Select(cs => cs.ClassId).Distinct().ToList();
+        var attempted = (await _examAttemptRepository.GetStudentAttemptsAsync(studentId))
+            .Where(a => a.Status is "SUBMITTED" or "GRADED")
+            .Select(a => a.ExamId)
+            .ToHashSet();
+
+        var now = DateTime.UtcNow;
+        var exams = new List<ExamResponse>();
+
+        foreach (var classId in classIds)
+        {
+            var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+            foreach (var examClass in examClasses)
+            {
+                if (attempted.Contains(examClass.ExamId))
+                    continue;
+
+                var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
+                if (exam == null || exam.Status != "ACTIVE" || exam.StartTime > now || exam.EndTime < now)
+                    continue;
+
+                exams.Add(new ExamResponse
+                {
+                    Id = exam.Id,
+                    Title = exam.Title,
+                    SubjectId = exam.SubjectId,
+                    SubjectName = exam.Subject?.Name ?? string.Empty,
+                    CreatedBy = exam.CreatedBy,
+                    DurationMinutes = exam.DurationMinutes,
+                    StartTime = exam.StartTime,
+                    EndTime = exam.EndTime,
+                    Description = exam.Description,
+                    Status = exam.Status,
+                    CreatedAt = exam.CreatedAt
+                });
+            }
+        }
+
+        return Ok(new ResponseResult<List<ExamResponse>>
+        {
+            Success = true,
+            Message = "Success",
+            Data = exams.GroupBy(e => e.Id).Select(g => g.First()).OrderBy(e => e.EndTime).ToList()
+        });
+    }
+
+    /// <summary>
+    /// Get upcoming exams for student
+    /// </summary>
+    [HttpGet("student/{studentId}/upcoming")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
+    public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetUpcomingForStudent(long studentId)
+    {
+        var student = await _studentRepository.GetByIdAsync(studentId);
+        if (student == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Student not found" });
+
+        var classIds = (await _studentRepository.GetStudentClassesAsync(studentId)).Select(cs => cs.ClassId).Distinct().ToList();
+        var now = DateTime.UtcNow;
+        var exams = new List<ExamResponse>();
+
+        foreach (var classId in classIds)
+        {
+            var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+            foreach (var examClass in examClasses)
+            {
+                var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
+                if (exam == null || exam.Status != "ACTIVE" || exam.StartTime <= now)
+                    continue;
+
+                exams.Add(new ExamResponse
+                {
+                    Id = exam.Id,
+                    Title = exam.Title,
+                    SubjectId = exam.SubjectId,
+                    SubjectName = exam.Subject?.Name ?? string.Empty,
+                    CreatedBy = exam.CreatedBy,
+                    DurationMinutes = exam.DurationMinutes,
+                    StartTime = exam.StartTime,
+                    EndTime = exam.EndTime,
+                    Description = exam.Description,
+                    Status = exam.Status,
+                    CreatedAt = exam.CreatedAt
+                });
+            }
+        }
+
+        return Ok(new ResponseResult<List<ExamResponse>>
+        {
+            Success = true,
+            Message = "Success",
+            Data = exams.GroupBy(e => e.Id).Select(g => g.First()).OrderBy(e => e.StartTime).ToList()
+        });
+    }
+
+    /// <summary>
     /// Create new exam
     /// </summary>
     [HttpPost]
@@ -221,6 +384,148 @@ public class ExamsController : ControllerBase
         _logger.LogInformation("Deleting exam: {ExamId}", id);
 
         var (success, message) = await _examService.DeleteExamAsync(id);
+
+        if (!success)
+        {
+            return BadRequest(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<object>
+        {
+            Success = success,
+            Message = message
+        });
+    }
+
+    /// <summary>
+    /// Configure exam settings
+    /// </summary>
+    [HttpPost("{examId}/settings")]
+    public async Task<ActionResult<ResponseResult<ExamSettingsResponse>>> ConfigureSettings(long examId, [FromBody] ConfigureExamSettingsRequest request)
+    {
+        _logger.LogInformation("Configuring settings for exam: {ExamId}", examId);
+
+        var (success, message, data) = await _examService.ConfigureSettingsAsync(examId, request);
+
+        if (!success)
+        {
+            return BadRequest(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<ExamSettingsResponse>
+        {
+            Success = success,
+            Message = message,
+            Data = data
+        });
+    }
+
+    /// <summary>
+    /// Get exam settings
+    /// </summary>
+    [HttpGet("{examId}/settings")]
+    public async Task<ActionResult<ResponseResult<ExamSettingsResponse>>> GetSettings(long examId)
+    {
+        _logger.LogInformation("Getting settings for exam: {ExamId}", examId);
+
+        var (success, message, data) = await _examService.GetSettingsAsync(examId);
+
+        if (!success)
+        {
+            return NotFound(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<ExamSettingsResponse>
+        {
+            Success = success,
+            Message = message,
+            Data = data
+        });
+    }
+
+    /// <summary>
+    /// Activate exam (transition from DRAFT to ACTIVE)
+    /// </summary>
+    [HttpPost("{examId}/activate")]
+    public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> ActivateExam(long examId)
+    {
+        _logger.LogInformation("Activating exam: {ExamId}", examId);
+
+        var (success, message, data) = await _examService.ActivateExamAsync(examId);
+
+        if (!success)
+        {
+            return BadRequest(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<ActivateExamResponse>
+        {
+            Success = success,
+            Message = message,
+            Data = data
+        });
+    }
+
+    /// <summary>
+    /// Close exam (transition from ACTIVE to CLOSED)
+    /// </summary>
+    [HttpPost("{examId}/close")]
+    public async Task<ActionResult<ResponseResult<object>>> CloseExam(long examId)
+    {
+        _logger.LogInformation("Closing exam: {ExamId}", examId);
+
+        var (success, message) = await _examService.CloseExamAsync(examId);
+
+        if (!success)
+        {
+            return BadRequest(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<object>
+        {
+            Success = success,
+            Message = message
+        });
+    }
+
+    /// <summary>
+    /// Change exam status
+    /// </summary>
+    [HttpPost("{examId}/status")]
+    public async Task<ActionResult<ResponseResult<object>>> ChangeStatus(long examId, [FromBody] ChangeExamStatusRequest request)
+    {
+        _logger.LogInformation("Changing exam status: {ExamId} to {Status}", examId, request.Status);
+
+        if (string.IsNullOrWhiteSpace(request.Status))
+        {
+            return BadRequest(new ResponseResult<object>
+            {
+                Success = false,
+                Message = "Status is required"
+            });
+        }
+
+        var (success, message) = await _examService.ChangeStatusAsync(examId, request.Status);
 
         if (!success)
         {

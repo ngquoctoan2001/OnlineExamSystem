@@ -46,4 +46,29 @@ public interface IExamService
     /// Delete exam (only if in DRAFT status)
     /// </summary>
     Task<(bool Success, string Message)> DeleteExamAsync(long id);
+
+    /// <summary>
+    /// Configure exam settings (shuffle, immediate results, etc.)
+    /// </summary>
+    Task<(bool Success, string Message, ExamSettingsResponse? Data)> ConfigureSettingsAsync(long examId, ConfigureExamSettingsRequest request);
+
+    /// <summary>
+    /// Get exam settings
+    /// </summary>
+    Task<(bool Success, string Message, ExamSettingsResponse? Data)> GetSettingsAsync(long examId);
+
+    /// <summary>
+    /// Activate exam (transition from DRAFT to ACTIVE)
+    /// </summary>
+    Task<(bool Success, string Message, ActivateExamResponse? Data)> ActivateExamAsync(long examId);
+
+    /// <summary>
+    /// Close exam (transition from ACTIVE to CLOSED)
+    /// </summary>
+    Task<(bool Success, string Message)> CloseExamAsync(long examId);
+
+    /// <summary>
+    /// Change exam status
+    /// </summary>
+    Task<(bool Success, string Message)> ChangeStatusAsync(long examId, string newStatus);
 }

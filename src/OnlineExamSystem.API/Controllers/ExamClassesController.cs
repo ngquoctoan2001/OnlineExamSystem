@@ -13,6 +13,8 @@ using OnlineExamSystem.Application.Services;
 [ApiController]
 [Route("api/exams/{examId}/classes")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Exam Classes")]
 public class ExamClassesController : ControllerBase
 {
     private readonly IExamClassService _examClassService;

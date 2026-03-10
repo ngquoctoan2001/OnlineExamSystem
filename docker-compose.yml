@@ -9,21 +9,17 @@ services:
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: onlineexam_dev
     ports:
-      - "5432:5432"
+      - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - onlineexam_network
-
-  adminer:
-    image: adminer
-    container_name: onlineexam_adminer
-    ports:
-      - "8080:8080"
-    depends_on:
-      - postgres
-    networks:
-      - onlineexam_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d onlineexam_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -34,27 +30,55 @@ services:
       - redis_data:/data
     networks:
       - onlineexam_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  minio:
-    image: minio/minio:latest
-    container_name: onlineexam_minio
-    environment:
-      MINIO_ROOT_USER: minioadmin
-      MINIO_ROOT_PASSWORD: minioadmin
+  adminer:
+    image: adminer
+    container_name: onlineexam_adminer
     ports:
-      - "9000:9000"
-      - "9001:9001"
-    volumes:
-      - minio_data:/data
-    command: server /data --console-address ":9001"
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
     networks:
       - onlineexam_network
+
+  api:
+    build:
+      context: .
+      dockerfile: src/OnlineExamSystem.API/Dockerfile
+    container_name: onlineexam_api
+    ports:
+      - "5000:8080"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=onlineexam_dev;Username=postgres;Password=postgres
+      - JwtSettings__SecretKey=your-very-long-secret-key-for-production-use-at-least-32-chars
+      - JwtSettings__Issuer=OnlineExamSystem
+      - JwtSettings__Audience=OnlineExamSystemUsers
+      - JwtSettings__ExpiryMinutes=60
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - onlineexam_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
 
 volumes:
   postgres_data:
   redis_data:
-  minio_data:
 
 networks:
   onlineexam_network:
     driver: bridge
+

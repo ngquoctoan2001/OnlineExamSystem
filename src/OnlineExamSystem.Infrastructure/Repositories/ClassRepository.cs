@@ -27,6 +27,8 @@ public class ClassRepository : IClassRepository
                 .Include(c => c.School)
                 .Include(c => c.ClassStudents)
                 .Include(c => c.ClassTeachers)
+                .Include(c => c.HomeroomTeacher)
+                    .ThenInclude(t => t!.User)
                 .FirstOrDefaultAsync(c => c.Id == id);
         }
         catch (Exception ex)
@@ -57,6 +59,10 @@ public class ClassRepository : IClassRepository
         {
             var query = _context.Classes
                 .Include(c => c.School)
+                .Include(c => c.ClassStudents)
+                .Include(c => c.ClassTeachers)
+                .Include(c => c.HomeroomTeacher)
+                    .ThenInclude(t => t!.User)
                 .OrderByDescending(c => c.Grade)
                 .ThenBy(c => c.Name);
 
@@ -138,6 +144,10 @@ public class ClassRepository : IClassRepository
 
             return await _context.Classes
                 .Include(c => c.School)
+                .Include(c => c.ClassStudents)
+                .Include(c => c.ClassTeachers)
+                .Include(c => c.HomeroomTeacher)
+                    .ThenInclude(t => t!.User)
                 .Where(c => 
                     c.Name.ToLower().Contains(lowerSearchTerm) ||
                     c.Code.ToLower().Contains(lowerSearchTerm))

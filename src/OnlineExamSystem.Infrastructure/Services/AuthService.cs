@@ -11,6 +11,8 @@ public interface IAuthService
     Task<(bool Success, string Message, LoginResponseDto?)> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default);
     Task<bool> LogoutAsync(long userId, CancellationToken cancellationToken = default);
     Task<bool> ValidateCredentialsAsync(string username, string password, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message)> ChangePasswordAsync(long userId, string currentPassword, string newPassword, CancellationToken cancellationToken = default);
+    Task<(bool Success, string Message)> ResetPasswordAsync(long targetUserId, string newPassword, CancellationToken cancellationToken = default);
 }
 
 public class LoginResponseDto
@@ -211,6 +213,65 @@ public class AuthService : IAuthService
         {
             _logger.LogError(ex, $"Error validating credentials for user: {username}");
             return false;
+        }
+    }
+
+    public async Task<(bool Success, string Message)> ChangePasswordAsync(long userId, string currentPassword, string newPassword, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            if (user == null)
+                return (false, "User not found");
+
+            if (!_passwordHasher.VerifyPassword(currentPassword, user.PasswordHash))
+                return (false, "Current password is incorrect");
+
+            if (newPassword.Length < 6)
+                return (false, "New password must be at least 6 characters");
+
+            user.PasswordHash = _passwordHasher.HashPassword(newPassword);
+            user.UpdatedAt = DateTime.UtcNow;
+            await _userRepository.UpdateAsync(user, cancellationToken);
+
+            // Invalidate all existing sessions so re-login is required
+            await _sessionRepository.DeleteByUserIdAsync(userId, cancellationToken);
+
+            _logger.LogInformation("Password changed for user: {UserId}", userId);
+            return (true, "Password changed successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error changing password for user: {UserId}", userId);
+            return (false, "An error occurred while changing password");
+        }
+    }
+
+    public async Task<(bool Success, string Message)> ResetPasswordAsync(long targetUserId, string newPassword, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(targetUserId, cancellationToken);
+            if (user == null)
+                return (false, "User not found");
+
+            if (newPassword.Length < 6)
+                return (false, "New password must be at least 6 characters");
+
+            user.PasswordHash = _passwordHasher.HashPassword(newPassword);
+            user.UpdatedAt = DateTime.UtcNow;
+            await _userRepository.UpdateAsync(user, cancellationToken);
+
+            // Invalidate sessions of the target user
+            await _sessionRepository.DeleteByUserIdAsync(targetUserId, cancellationToken);
+
+            _logger.LogInformation("Password reset by admin for user: {UserId}", targetUserId);
+            return (true, "Password reset successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error resetting password for user: {UserId}", targetUserId);
+            return (false, "An error occurred while resetting password");
         }
     }
 }

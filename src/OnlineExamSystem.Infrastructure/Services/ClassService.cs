@@ -180,13 +180,14 @@ public class ClassService : IClassService
                 return (false, "Class code already exists", null);
             }
 
-            // Create class
+            // Create class - default SchoolId to 1
             var @class = new Class
             {
-                SchoolId = request.SchoolId,
+                SchoolId = 1,
                 Code = request.Code,
                 Name = request.Name,
-                Grade = request.Grade
+                Grade = request.Grade,
+                HomeroomTeacherId = request.HomeroomTeacherId
             };
 
             var createdClass = await _classRepository.CreateAsync(@class);
@@ -223,6 +224,11 @@ public class ClassService : IClassService
             if (request.Grade.HasValue && request.Grade > 0 && request.Grade <= 12)
             {
                 @class.Grade = request.Grade.Value;
+            }
+
+            if (request.HomeroomTeacherId.HasValue)
+            {
+                @class.HomeroomTeacherId = request.HomeroomTeacherId.Value == 0 ? null : request.HomeroomTeacherId;
             }
 
             var updatedClass = await _classRepository.UpdateAsync(@class);
@@ -367,10 +373,11 @@ public class ClassService : IClassService
         return new ClassResponse
         {
             Id = @class.Id,
-            SchoolId = @class.SchoolId,
             Code = @class.Code,
             Name = @class.Name,
             Grade = @class.Grade,
+            HomeroomTeacherId = @class.HomeroomTeacherId,
+            HomeroomTeacherName = @class.HomeroomTeacher?.User?.FullName,
             StudentCount = @class.ClassStudents?.Count ?? 0,
             TeacherCount = @class.ClassTeachers?.Count ?? 0
         };

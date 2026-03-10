@@ -97,3 +97,29 @@ public class ImportHistoryListResponse
     public int FailedCount { get; set; }
     public DateTime ImportedAt { get; set; }
 }
+
+/// <summary>
+/// Question import from Excel row
+/// Expected columns: Content, QuestionType, Subject, Difficulty, OptionA, OptionB, OptionC, OptionD, CorrectOption
+/// </summary>
+public class ImportQuestionRow
+{
+    [Required]
+    public string? Content { get; set; }
+
+    /// <summary>MCQ, TRUE_FALSE, SHORT_ANSWER, ESSAY, DRAWING</summary>
+    public string QuestionType { get; set; } = "MCQ";
+
+    public string? Subject { get; set; }
+
+    /// <summary>EASY, MEDIUM, HARD</summary>
+    public string Difficulty { get; set; } = "MEDIUM";
+
+    public string? OptionA { get; set; }
+    public string? OptionB { get; set; }
+    public string? OptionC { get; set; }
+    public string? OptionD { get; set; }
+
+    /// <summary>A, B, C, or D — the label of the correct option (for MCQ/TRUE_FALSE)</summary>
+    public string? CorrectOption { get; set; }
+}

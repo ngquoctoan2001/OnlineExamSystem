@@ -2,6 +2,7 @@ namespace OnlineExamSystem.API.Controllers;
 
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using OfficeOpenXml;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
 using OnlineExamSystem.Infrastructure.Services;
@@ -12,6 +13,8 @@ using OnlineExamSystem.Infrastructure.Services;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Students")]
 public class StudentsController : ControllerBase
 {
     private readonly IStudentService _studentService;
@@ -27,6 +30,7 @@ public class StudentsController : ControllerBase
     /// Get all students
     /// </summary>
     [HttpGet]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<StudentListResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting all students: page={Page}, pageSize={PageSize}", page, pageSize);
@@ -45,6 +49,7 @@ public class StudentsController : ControllerBase
     /// Get student by ID
     /// </summary>
     [HttpGet("{id}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<StudentResponse>>> GetById(long id)
     {
         _logger.LogInformation("Getting student: {StudentId}", id);
@@ -72,6 +77,7 @@ public class StudentsController : ControllerBase
     /// Search students by name or student code
     /// </summary>
     [HttpGet("search/{searchTerm}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<List<StudentResponse>>>> Search(string searchTerm)
     {
         _logger.LogInformation("Searching students: {SearchTerm}", searchTerm);
@@ -90,6 +96,7 @@ public class StudentsController : ControllerBase
     /// Create new student
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<StudentResponse>>> Create([FromBody] CreateStudentRequest request)
     {
         _logger.LogInformation("Creating new student: {Username}", request.Username);
@@ -126,6 +133,7 @@ public class StudentsController : ControllerBase
     /// Update student information
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<StudentResponse>>> Update(long id, [FromBody] UpdateStudentRequest request)
     {
         _logger.LogInformation("Updating student: {StudentId}", id);
@@ -162,6 +170,7 @@ public class StudentsController : ControllerBase
     /// Delete student
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<object>>> Delete(long id)
     {
         _logger.LogInformation("Deleting student: {StudentId}", id);
@@ -188,6 +197,7 @@ public class StudentsController : ControllerBase
     /// Get classes enrolled by student
     /// </summary>
     [HttpGet("{id}/classes")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<List<StudentClassEnrollmentResponse>>>> GetStudentClasses(long id)
     {
         _logger.LogInformation("Getting classes for student: {StudentId}", id);
@@ -209,5 +219,49 @@ public class StudentsController : ControllerBase
             Message = message,
             Data = data
         });
+    }
+
+    /// <summary>
+    /// Export all students to Excel file
+    /// </summary>
+    [HttpGet("export")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<IActionResult> Export()
+    {
+        var (success, _, data) = await _studentService.GetAllStudentsAsync(1, 10000);
+        if (!success || data == null)
+            return BadRequest("Failed to get students");
+
+        ExcelPackage.LicenseContext = LicenseContext.NonCommercial;
+        using var package = new ExcelPackage();
+        var ws = package.Workbook.Worksheets.Add("Students");
+
+        ws.Cells[1, 1].Value = "StudentCode";
+        ws.Cells[1, 2].Value = "FullName";
+        ws.Cells[1, 3].Value = "Username";
+        ws.Cells[1, 4].Value = "Email";
+        ws.Cells[1, 5].Value = "RollNumber";
+        ws.Cells[1, 6].Value = "Status";
+
+        using (var range = ws.Cells[1, 1, 1, 6])
+        {
+            range.Style.Font.Bold = true;
+        }
+
+        var row = 2;
+        foreach (var s in data.Students)
+        {
+            ws.Cells[row, 1].Value = s.StudentCode;
+            ws.Cells[row, 2].Value = s.FullName;
+            ws.Cells[row, 3].Value = s.Username;
+            ws.Cells[row, 4].Value = s.Email;
+            ws.Cells[row, 5].Value = s.RollNumber;
+            ws.Cells[row, 6].Value = s.IsActive ? "Active" : "Inactive";
+            row++;
+        }
+
+        ws.Cells.AutoFitColumns();
+        var bytes = package.GetAsByteArray();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "students.xlsx");
     }
 }

@@ -10,17 +10,35 @@ public class ExamAttemptService : IExamAttemptService
     private readonly IExamAttemptRepository _examAttemptRepository;
     private readonly IExamRepository _examRepository;
     private readonly IStudentRepository _studentRepository;
+    private readonly IExamViolationRepository _violationRepository;
+    private readonly IAnswerRepository _answerRepository;
+    private readonly IGradingResultRepository _gradingResultRepository;
+    private readonly IExamQuestionRepository _examQuestionRepository;
+    private readonly IQuestionOptionRepository _optionRepository;
+    private readonly IActivityLogService _activityLog;
     private readonly ILogger<ExamAttemptService> _logger;
 
     public ExamAttemptService(
         IExamAttemptRepository examAttemptRepository,
         IExamRepository examRepository,
         IStudentRepository studentRepository,
+        IExamViolationRepository violationRepository,
+        IAnswerRepository answerRepository,
+        IGradingResultRepository gradingResultRepository,
+        IExamQuestionRepository examQuestionRepository,
+        IQuestionOptionRepository optionRepository,
+        IActivityLogService activityLog,
         ILogger<ExamAttemptService> logger)
     {
         _examAttemptRepository = examAttemptRepository;
         _examRepository = examRepository;
         _studentRepository = studentRepository;
+        _violationRepository = violationRepository;
+        _answerRepository = answerRepository;
+        _gradingResultRepository = gradingResultRepository;
+        _examQuestionRepository = examQuestionRepository;
+        _optionRepository = optionRepository;
+        _activityLog = activityLog;
         _logger = logger;
     }
 
@@ -52,6 +70,7 @@ public class ExamAttemptService : IExamAttemptService
             };
 
             await _examAttemptRepository.CreateAsync(attempt);
+            await _activityLog.LogAsync(studentId, "EXAM_STARTED", "ExamAttempt", attempt.Id, $"ExamId: {examId}");
 
             return (true, "Exam attempt started successfully", new ExamAttemptResponse
             {
@@ -190,6 +209,15 @@ public class ExamAttemptService : IExamAttemptService
 
             await _examAttemptRepository.UpdateAsync(attempt);
 
+            // Auto-grade MCQ and TRUE_FALSE questions
+            var autoScore = await AutoGradeAttemptAsync(attempt);
+            if (autoScore.HasValue)
+            {
+                attempt.Score = autoScore;
+                await _examAttemptRepository.UpdateAsync(attempt);
+            }
+
+            await _activityLog.LogAsync(null, "EXAM_SUBMITTED", "ExamAttempt", attempt.Id, $"ExamId: {attempt.ExamId}, StudentId: {attempt.StudentId}");
             return (true, "Exam attempt submitted successfully", new SubmitExamAttemptResponse
             {
                 AttemptId = attempt.Id,
@@ -202,6 +230,71 @@ public class ExamAttemptService : IExamAttemptService
         {
             _logger.LogError(ex, "Error submitting exam attempt");
             return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    private async Task<decimal?> AutoGradeAttemptAsync(ExamAttempt attempt)
+    {
+        try
+        {
+            var examQuestions = await _examQuestionRepository.GetExamQuestionsAsync(attempt.ExamId);
+            var answers = await _answerRepository.GetByAttemptIdAsync(attempt.Id);
+            var answerMap = answers.ToDictionary(a => a.QuestionId);
+
+            decimal totalScore = 0m;
+            bool anyAutoGraded = false;
+
+            foreach (var eq in examQuestions)
+            {
+                if (eq.Question == null) continue;
+
+                var qTypeName = eq.Question.QuestionType?.Name?.ToUpperInvariant() ?? string.Empty;
+                bool isAutoGradable = qTypeName is "MCQ" or "TRUE_FALSE";
+
+                if (!isAutoGradable) continue;
+
+                answerMap.TryGetValue(eq.QuestionId, out var answer);
+                var correctOptions = await _optionRepository.GetCorrectOptionsAsync(new List<long> { eq.QuestionId });
+                var correctOptionIds = correctOptions.Select(o => o.Id).ToHashSet();
+
+                decimal questionScore = 0m;
+                if (answer != null)
+                {
+                    var selectedOptionIds = answer.AnswerOptions?.Select(ao => ao.OptionId).ToHashSet() ?? new HashSet<long>();
+                    // Full marks only if selected options exactly match correct options
+                    if (selectedOptionIds.SetEquals(correctOptionIds))
+                        questionScore = eq.MaxScore;
+                }
+
+                var existing = await _gradingResultRepository.GetByAttemptAndQuestionAsync(attempt.Id, eq.QuestionId);
+                if (existing == null)
+                {
+                    await _gradingResultRepository.CreateAsync(new Domain.Entities.GradingResult
+                    {
+                        ExamAttemptId = attempt.Id,
+                        QuestionId = eq.QuestionId,
+                        Score = questionScore,
+                        GradedAt = DateTime.UtcNow,
+                        GradedBy = null // auto-graded
+                    });
+                }
+                else
+                {
+                    existing.Score = questionScore;
+                    existing.GradedAt = DateTime.UtcNow;
+                    await _gradingResultRepository.UpdateAsync(existing);
+                }
+
+                totalScore += questionScore;
+                anyAutoGraded = true;
+            }
+
+            return anyAutoGraded ? totalScore : null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error during auto-grading for attempt {AttemptId}", attempt.Id);
+            return null;
         }
     }
 
@@ -289,5 +382,42 @@ public class ExamAttemptService : IExamAttemptService
             TotalQuestions = attempt.Answers?.Count ?? 0,
             AnsweredQuestions = attempt.Answers?.Where(a => !string.IsNullOrEmpty(a.TextContent) || !string.IsNullOrEmpty(a.EssayContent) || !string.IsNullOrEmpty(a.CanvasImage)).Count() ?? 0
         };
+    }
+
+    public async Task<(bool Success, string Message, ViolationResponse? Data)> LogViolationAsync(long attemptId, LogViolationRequest request)
+    {
+        try
+        {
+            var attempt = await _examAttemptRepository.GetByIdAsync(attemptId);
+            if (attempt == null)
+                return (false, "Exam attempt not found", null);
+
+            if (attempt.Status != "IN_PROGRESS")
+                return (false, "Exam attempt is not in progress", null);
+
+            var violation = new ExamViolation
+            {
+                ExamAttemptId = attemptId,
+                ViolationType = request.ViolationType,
+                Description = request.Description,
+                OccurredAt = DateTime.UtcNow
+            };
+
+            await _violationRepository.CreateAsync(violation);
+
+            return (true, "Violation logged", new ViolationResponse
+            {
+                Id = violation.Id,
+                ExamAttemptId = violation.ExamAttemptId,
+                ViolationType = violation.ViolationType,
+                Description = violation.Description,
+                OccurredAt = violation.OccurredAt
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error logging violation for attempt {AttemptId}", attemptId);
+            return (false, $"Error: {ex.Message}", null);
+        }
     }
 }

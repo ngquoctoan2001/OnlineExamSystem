@@ -1,9 +1,12 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.IdentityModel.Tokens;
 using OnlineExamSystem.Infrastructure;
 using OnlineExamSystem.Infrastructure.Services;
 using OnlineExamSystem.Infrastructure.Repositories;
+using OnlineExamSystem.Infrastructure.Data;
 using System.Text;
+using System.Threading.RateLimiting;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -18,13 +21,19 @@ builder.Services.AddSwaggerGen(options =>
     {
         Title = "Online Exam System API",
         Version = "v1",
-        Description = "Hệ thống thi online - Quản lý bài kiểm tra",
+        Description = "Hệ thống thi online - Quản lý bài kiểm tra, học sinh, giáo viên và kết quả thi.",
         Contact = new()
         {
             Name = "Online Exam System",
             Email = "support@onlineexam.local"
         }
     });
+
+    // Include XML documentation
+    var xmlFile = $"{System.Reflection.Assembly.GetExecutingAssembly().GetName().Name}.xml";
+    var xmlPath = Path.Combine(AppContext.BaseDirectory, xmlFile);
+    if (File.Exists(xmlPath))
+        options.IncludeXmlComments(xmlPath);
 
     // JWT in Swagger
     options.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
@@ -74,6 +83,29 @@ builder.Services.AddLogging(config =>
 // Infrastructure services
 builder.Services.AddInfrastructure(builder.Configuration);
 
+// Rate limiting
+builder.Services.AddRateLimiter(options =>
+{
+    var isTest = builder.Environment.IsEnvironment("Test");
+    // Auth endpoints: 10 req/minute per IP (unlimited in Test)
+    options.AddFixedWindowLimiter("auth", opt =>
+    {
+        opt.PermitLimit = isTest ? int.MaxValue : 10;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 0;
+    });
+    // General API: 200 req/minute per IP (unlimited in Test)
+    options.AddFixedWindowLimiter("api", opt =>
+    {
+        opt.PermitLimit = isTest ? int.MaxValue : 200;
+        opt.Window = TimeSpan.FromMinutes(1);
+        opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
+        opt.QueueLimit = 5;
+    });
+    options.RejectionStatusCode = 429;
+});
+
 // Authentication services
 builder.Services.AddScoped<IJwtTokenProvider, JwtTokenProvider>();
 builder.Services.AddScoped<IPasswordHasher, PasswordHasher>();
@@ -93,6 +125,19 @@ builder.Services.AddScoped<ITeachingAssignmentRepository, TeachingAssignmentRepo
 builder.Services.AddScoped<IExamRepository, ExamRepository>();
 builder.Services.AddScoped<IExamClassRepository, ExamClassRepository>();
 builder.Services.AddScoped<IExamAttemptRepository, ExamAttemptRepository>();
+builder.Services.AddScoped<IExamSettingsRepository, ExamSettingsRepository>();
+builder.Services.AddScoped<ITagRepository, TagRepository>();
+builder.Services.AddScoped<IExamQuestionRepository, ExamQuestionRepository>();
+builder.Services.AddScoped<IAnswerRepository, AnswerRepository>();
+builder.Services.AddScoped<IGradingResultRepository, GradingResultRepository>();
+builder.Services.AddScoped<IExamStatisticRepository, ExamStatisticRepository>();
+builder.Services.AddScoped<IExamViolationRepository, ExamViolationRepository>();
+builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
+builder.Services.AddScoped<IActivityLogRepository, ActivityLogRepository>();
+
+// Import services
+builder.Services.AddScoped<IExcelParserService, ExcelParserService>();
+builder.Services.AddScoped<IImportService, ImportService>();
 
 // Services
 builder.Services.AddScoped<ITeacherService, TeacherService>();
@@ -101,9 +146,15 @@ builder.Services.AddScoped<IClassService, ClassService>();
 builder.Services.AddScoped<ISubjectService, SubjectService>();
 builder.Services.AddScoped<IQuestionService, QuestionService>();
 builder.Services.AddScoped<ITeachingAssignmentService, TeachingAssignmentService>();
-builder.Services.AddScoped<IExamService, ExamService>();
+builder.Services.AddScoped<INotificationService, NotificationService>();
+builder.Services.AddScoped<IActivityLogService, ActivityLogService>();
+builder.Services.AddScoped<OnlineExamSystem.Application.Services.IExamService, ExamService>();
 builder.Services.AddScoped<IExamClassService, ExamClassService>();
 builder.Services.AddScoped<IExamAttemptService, ExamAttemptService>();
+builder.Services.AddScoped<IExamQuestionService, ExamQuestionService>();
+builder.Services.AddScoped<IAnswerService, AnswerService>();
+builder.Services.AddScoped<IGradingService, GradingService>();
+builder.Services.AddScoped<IStatisticsService, StatisticsService>();
 
 // JWT Authentication
 var jwtSettings = builder.Configuration.GetSection("JwtSettings");
@@ -116,6 +167,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
+    options.MapInboundClaims = false; // keep "sub" as "sub" instead of mapping to ClaimTypes.NameIdentifier
     options.TokenValidationParameters = new TokenValidationParameters
     {
         ValidateIssuerSigningKey = true,
@@ -131,18 +183,47 @@ builder.Services.AddAuthentication(options =>
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline
-if (app.Environment.IsDevelopment())
+// Seed database
+using (var scope = app.Services.CreateScope())
 {
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var seeder = scope.ServiceProvider.GetRequiredService<IDataSeeder>();
+    await seeder.SeedAsync(dbContext);
 }
 
-app.UseHttpsRedirection();
+// Configure the HTTP request pipeline
+app.UseSwagger();
+app.UseSwaggerUI(c =>
+{
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Online Exam System API v1");
+    c.RoutePrefix = "swagger";
+    c.DisplayRequestDuration();
+    c.DocExpansion(Swashbuckle.AspNetCore.SwaggerUI.DocExpansion.List);
+    c.DefaultModelsExpandDepth(1);
+});
+
+if (!app.Environment.IsEnvironment("Test"))
+    app.UseHttpsRedirection();
+
+// Security headers
+app.Use(async (context, next) =>
+{
+    context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+    context.Response.Headers.Append("X-Frame-Options", "DENY");
+    context.Response.Headers.Append("X-XSS-Protection", "1; mode=block");
+    context.Response.Headers.Append("Referrer-Policy", "strict-origin-when-cross-origin");
+    context.Response.Headers.Append("Permissions-Policy", "camera=(), microphone=(), geolocation=()");
+    await next();
+});
+
 app.UseCors("AllowReact");
+app.UseRateLimiter();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
 
 app.Run();
+
+// Make Program class accessible to integration tests
+public partial class Program { }

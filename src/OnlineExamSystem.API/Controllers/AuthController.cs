@@ -1,24 +1,28 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using OnlineExamSystem.Application.DTOs.Auth;
 using OnlineExamSystem.Application.DTOs.Common;
 using OnlineExamSystem.Infrastructure.Services;
+using OnlineExamSystem.Infrastructure.Repositories;
 
 namespace OnlineExamSystem.API.Controllers;
 
-/// <summary>
-/// Authentication endpoints
-/// </summary>
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("auth")]
+[Produces("application/json")]
+[Tags("Authentication")]
 public class AuthController : ControllerBase
 {
     private readonly IAuthService _authService;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<AuthController> _logger;
 
-    public AuthController(IAuthService authService, ILogger<AuthController> logger)
+    public AuthController(IAuthService authService, IUserRepository userRepository, ILogger<AuthController> logger)
     {
         _authService = authService;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -166,7 +170,10 @@ public class AuthController : ControllerBase
     [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status200OK)]
     public async Task<ActionResult<ResponseResult<object>>> Logout(CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst("sub")?.Value ?? User.FindFirst("nameid")?.Value;
+        var userIdClaim = User.FindFirst("sub")?.Value
+            ?? User.FindFirst("nameid")?.Value
+            ?? User.FindFirst("UserId")?.Value
+            ?? User.FindFirst("userId")?.Value;
         if (!long.TryParse(userIdClaim, out var userId))
             return Unauthorized(new ResponseResult<object> { Success = false, Message = "Invalid user" });
 
@@ -186,19 +193,30 @@ public class AuthController : ControllerBase
     [Authorize]
     [ProducesResponseType(typeof(ResponseResult<UserDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status401Unauthorized)]
-    public ActionResult<ResponseResult<UserDto>> GetProfile()
+    public async Task<ActionResult<ResponseResult<UserDto>>> GetProfile(CancellationToken cancellationToken)
     {
-        var userIdClaim = User.FindFirst("sub")?.Value ?? User.FindFirst("nameid")?.Value;
-        var username = User.FindFirst("unique_name")?.Value ?? User.Identity?.Name;
+        var userIdClaim = User.FindFirst("sub")?.Value
+            ?? User.FindFirst("nameid")?.Value
+            ?? User.FindFirst("UserId")?.Value
+            ?? User.FindFirst("userId")?.Value;
 
         if (!long.TryParse(userIdClaim, out var userId))
             return Unauthorized(new ResponseResult<object> { Success = false, Message = "Invalid user" });
 
+        var dbUser = await _userRepository.GetUserWithRolesAsync(userId, cancellationToken);
+        if (dbUser == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "User not found" });
+
+        var role = dbUser.UserRoles?.Select(ur => ur.Role?.Name).FirstOrDefault(r => !string.IsNullOrWhiteSpace(r)) ?? string.Empty;
+
         var user = new UserDto
         {
             Id = userId,
-            Username = username ?? string.Empty,
-            Role = "STUDENT" // TODO: Get from user roles
+            Username = dbUser.Username,
+            Email = dbUser.Email,
+            FullName = dbUser.FullName,
+            IsActive = dbUser.IsActive,
+            Role = role
         };
 
         return Ok(new ResponseResult<UserDto>
@@ -206,5 +224,42 @@ public class AuthController : ControllerBase
             Success = true,
             Data = user
         });
+    }
+
+    /// <summary>
+    /// Change password for current user
+    /// </summary>
+    [HttpPost("change-password")]
+    [Authorize]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ResponseResult<object>>> ChangePassword(
+        [FromBody] ChangePasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Invalid input" });
+
+        if (request.NewPassword != request.ConfirmNewPassword)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Confirm password does not match" });
+
+        var userIdClaim = User.FindFirst("sub")?.Value
+            ?? User.FindFirst("nameid")?.Value
+            ?? User.FindFirst("UserId")?.Value
+            ?? User.FindFirst("userId")?.Value;
+        if (!long.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new ResponseResult<object> { Success = false, Message = "Invalid user" });
+
+        var (success, message) = await _authService.ChangePasswordAsync(
+            userId,
+            request.CurrentPassword,
+            request.NewPassword,
+            cancellationToken);
+
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<object> { Success = true, Message = message });
     }
 }

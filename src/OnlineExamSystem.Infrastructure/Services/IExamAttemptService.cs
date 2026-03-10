@@ -12,4 +12,5 @@ public interface IExamAttemptService
     Task<(bool Success, string Message, SubmitExamAttemptResponse? Data)> SubmitAttemptAsync(long attemptId);
     Task<(bool Success, string Message, ExamAttemptDetailResponse? Data)> GetAttemptDetailAsync(long attemptId);
     Task<(bool Success, string Message, ExamAttemptListResponse? Data)> GetAllAttemptsAsync(int page = 1, int pageSize = 20);
+    Task<(bool Success, string Message, ViolationResponse? Data)> LogViolationAsync(long attemptId, LogViolationRequest request);
 }

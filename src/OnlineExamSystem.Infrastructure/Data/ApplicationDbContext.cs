@@ -35,6 +35,11 @@ public class ApplicationDbContext : DbContext
     public DbSet<AnswerOption> AnswerOptions { get; set; } = null!;
     public DbSet<GradingResult> GradingResults { get; set; } = null!;
     public DbSet<ExamStatistic> ExamStatistics { get; set; } = null!;
+    public DbSet<Tag> Tags { get; set; } = null!;
+    public DbSet<QuestionTag> QuestionTags { get; set; } = null!;
+    public DbSet<ExamViolation> ExamViolations { get; set; } = null!;
+    public DbSet<Notification> Notifications { get; set; } = null!;
+    public DbSet<ActivityLog> ActivityLogs { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -54,12 +59,21 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ClassStudent>()
             .HasKey(cs => new { cs.ClassId, cs.StudentId });
 
+        modelBuilder.Entity<Class>()
+            .HasOne(c => c.HomeroomTeacher)
+            .WithMany()
+            .HasForeignKey(c => c.HomeroomTeacherId)
+            .OnDelete(DeleteBehavior.SetNull);
+
         // Exam relationships
         modelBuilder.Entity<ExamClass>()
             .HasKey(ec => new { ec.ExamId, ec.ClassId });
 
         modelBuilder.Entity<AnswerOption>()
             .HasKey(ao => new { ao.AnswerId, ao.OptionId });
+
+        modelBuilder.Entity<QuestionTag>()
+            .HasKey(qt => new { qt.QuestionId, qt.TagId });
 
         // Indexes for performance
         modelBuilder.Entity<User>()
@@ -79,5 +93,50 @@ public class ApplicationDbContext : DbContext
 
         modelBuilder.Entity<Exam>()
             .HasIndex(e => e.CreatedBy);
+
+        // Additional performance indexes
+        modelBuilder.Entity<Exam>()
+            .HasIndex(e => e.Status);
+
+        modelBuilder.Entity<Exam>()
+            .HasIndex(e => e.SubjectId);
+
+        modelBuilder.Entity<ExamAttempt>()
+            .HasIndex(ea => ea.StudentId);
+
+        modelBuilder.Entity<ExamAttempt>()
+            .HasIndex(ea => ea.ExamId);
+
+        modelBuilder.Entity<ExamAttempt>()
+            .HasIndex(ea => new { ea.StudentId, ea.ExamId });
+
+        modelBuilder.Entity<Answer>()
+            .HasIndex(a => a.ExamAttemptId);
+
+        modelBuilder.Entity<GradingResult>()
+            .HasIndex(gr => gr.ExamAttemptId);
+
+        modelBuilder.Entity<Notification>()
+            .HasIndex(n => n.UserId);
+
+        modelBuilder.Entity<Notification>()
+            .HasIndex(n => new { n.UserId, n.IsRead });
+
+        modelBuilder.Entity<ActivityLog>()
+            .HasIndex(al => al.UserId);
+
+        modelBuilder.Entity<ActivityLog>()
+            .HasIndex(al => al.Action);
+
+        modelBuilder.Entity<ActivityLog>()
+            .HasIndex(al => al.OccurredAt);
+
+        modelBuilder.Entity<Student>()
+            .HasIndex(s => s.StudentCode)
+            .IsUnique();
+
+        modelBuilder.Entity<Teacher>()
+            .HasIndex(t => t.EmployeeId)
+            .IsUnique();
     }
 }

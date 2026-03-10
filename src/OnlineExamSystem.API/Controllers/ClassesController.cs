@@ -12,14 +12,21 @@ using OnlineExamSystem.Infrastructure.Services;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Classes")]
 public class ClassesController : ControllerBase
 {
     private readonly IClassService _classService;
+    private readonly ITeachingAssignmentService _teachingAssignmentService;
     private readonly ILogger<ClassesController> _logger;
 
-    public ClassesController(IClassService classService, ILogger<ClassesController> logger)
+    public ClassesController(
+        IClassService classService,
+        ITeachingAssignmentService teachingAssignmentService,
+        ILogger<ClassesController> logger)
     {
         _classService = classService;
+        _teachingAssignmentService = teachingAssignmentService;
         _logger = logger;
     }
 
@@ -27,6 +34,7 @@ public class ClassesController : ControllerBase
     /// Get all classes
     /// </summary>
     [HttpGet]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<ClassListResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting all classes: page={Page}, pageSize={PageSize}", page, pageSize);
@@ -45,6 +53,7 @@ public class ClassesController : ControllerBase
     /// Get class by ID
     /// </summary>
     [HttpGet("{id}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<ClassResponse>>> GetById(long id)
     {
         _logger.LogInformation("Getting class: {ClassId}", id);
@@ -72,6 +81,7 @@ public class ClassesController : ControllerBase
     /// Get classes by school
     /// </summary>
     [HttpGet("school/{schoolId}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<ClassListResponse>>> GetBySchool(long schoolId, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting classes for school: {SchoolId}", schoolId);
@@ -90,6 +100,7 @@ public class ClassesController : ControllerBase
     /// Get classes by grade
     /// </summary>
     [HttpGet("grade/{grade}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<ClassListResponse>>> GetByGrade(int grade, [FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting classes for grade: {Grade}", grade);
@@ -108,6 +119,7 @@ public class ClassesController : ControllerBase
     /// Search classes by name or code
     /// </summary>
     [HttpGet("search/{searchTerm}")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<List<ClassResponse>>>> Search(string searchTerm)
     {
         _logger.LogInformation("Searching classes: {SearchTerm}", searchTerm);
@@ -126,6 +138,7 @@ public class ClassesController : ControllerBase
     /// Create new class
     /// </summary>
     [HttpPost]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<ClassResponse>>> Create([FromBody] CreateClassRequest request)
     {
         _logger.LogInformation("Creating new class: {Code}", request.Code);
@@ -162,6 +175,7 @@ public class ClassesController : ControllerBase
     /// Update class information
     /// </summary>
     [HttpPut("{id}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<ClassResponse>>> Update(long id, [FromBody] UpdateClassRequest request)
     {
         _logger.LogInformation("Updating class: {ClassId}", id);
@@ -198,6 +212,7 @@ public class ClassesController : ControllerBase
     /// Delete class
     /// </summary>
     [HttpDelete("{id}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<object>>> Delete(long id)
     {
         _logger.LogInformation("Deleting class: {ClassId}", id);
@@ -224,6 +239,7 @@ public class ClassesController : ControllerBase
     /// Get students in class
     /// </summary>
     [HttpGet("{id}/students")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
     public async Task<ActionResult<ResponseResult<List<ClassStudentResponse>>>> GetClassStudents(long id)
     {
         _logger.LogInformation("Getting students for class: {ClassId}", id);
@@ -248,9 +264,37 @@ public class ClassesController : ControllerBase
     }
 
     /// <summary>
+    /// Get teachers assigned to a class
+    /// </summary>
+    [HttpGet("{id}/teachers")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<List<TeacherAssignmentResponse>>>> GetClassTeachers(long id)
+    {
+        _logger.LogInformation("Getting teachers for class: {ClassId}", id);
+
+        var (success, message, data) = await _teachingAssignmentService.GetAssignmentsByClassAsync(id);
+        if (!success)
+        {
+            return NotFound(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        return Ok(new ResponseResult<List<TeacherAssignmentResponse>>
+        {
+            Success = true,
+            Message = message,
+            Data = data
+        });
+    }
+
+    /// <summary>
     /// Add student to class
     /// </summary>
     [HttpPost("{classId}/students/{studentId}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<object>>> AddStudent(long classId, long studentId)
     {
         _logger.LogInformation("Adding student {StudentId} to class {ClassId}", studentId, classId);
@@ -277,6 +321,7 @@ public class ClassesController : ControllerBase
     /// Remove student from class
     /// </summary>
     [HttpDelete("{classId}/students/{studentId}")]
+    [Authorize(Roles = "ADMIN")]
     public async Task<ActionResult<ResponseResult<object>>> RemoveStudent(long classId, long studentId)
     {
         _logger.LogInformation("Removing student {StudentId} from class {ClassId}", studentId, classId);

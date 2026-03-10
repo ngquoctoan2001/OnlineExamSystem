@@ -10,6 +10,8 @@ namespace OnlineExamSystem.API.Controllers;
 [ApiController]
 [Route("api/exams/{examId}/questions")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Exam Questions")]
 public class ExamQuestionsController : ControllerBase
 {
     private readonly IExamQuestionService _examQuestionService;

@@ -12,6 +12,8 @@ using OnlineExamSystem.Infrastructure.Services;
 [ApiController]
 [Route("api/[controller]")]
 [Authorize]
+[Produces("application/json")]
+[Tags("Subjects")]
 public class SubjectsController : ControllerBase
 {
     private readonly ISubjectService _subjectService;

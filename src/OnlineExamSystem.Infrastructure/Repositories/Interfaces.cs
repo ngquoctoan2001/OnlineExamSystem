@@ -11,6 +11,14 @@ public interface IUserRepository
     Task<User> CreateAsync(User user, CancellationToken cancellationToken = default);
     Task<User> UpdateAsync(User user, CancellationToken cancellationToken = default);
     Task<bool> DeleteAsync(long id, CancellationToken cancellationToken = default);
+    Task<bool> DeleteAsync(User user, CancellationToken cancellationToken = default);
+    Task<Role?> GetRoleByNameAsync(string roleName, CancellationToken cancellationToken = default);
+    Task AssignRoleToUserAsync(long userId, long roleId, CancellationToken cancellationToken = default);
+    Task RemoveRoleFromUserAsync(long userId, long roleId, CancellationToken cancellationToken = default);
+    Task<User?> GetUserWithRolesAsync(long userId, CancellationToken cancellationToken = default);
+    Task<(List<User> Users, int Total)> GetAllUsersAsync(int pageNumber, int pageSize, CancellationToken cancellationToken = default);
+    Task<User?> UpdateUserAsync(long userId, string email, string fullName, bool isActive, CancellationToken cancellationToken = default);
+    Task<List<Role>> GetAllRolesAsync(CancellationToken cancellationToken = default);
 }
 
 public interface IUserSessionRepository
@@ -171,6 +179,14 @@ public interface IExamAttemptRepository
     Task<bool> DeleteAsync(long id);
 }
 
+public interface IExamSettingsRepository
+{
+    Task<ExamSetting?> GetByExamIdAsync(long examId);
+    Task<ExamSetting> CreateAsync(ExamSetting settings);
+    Task<ExamSetting> UpdateAsync(ExamSetting settings);
+    Task<bool> DeleteAsync(long examId);
+}
+
 public interface IExamQuestionRepository
 {
     Task<ExamQuestion?> GetByIdAsync(long id);
@@ -185,4 +201,72 @@ public interface IExamQuestionRepository
     Task<bool> ExistsAsync(long examId, long questionId);
     Task<int> GetMaxOrderAsync(long examId);
     Task<int> GetTotalCountAsync();
+}
+
+public interface ITagRepository
+{
+    Task<Tag?> GetByIdAsync(long id);
+    Task<Tag?> GetByNameAsync(string name);
+    Task<List<Tag>> GetAllAsync();
+    Task<List<Tag>> SearchAsync(string searchTerm);
+    Task<Tag> CreateAsync(Tag tag);
+    Task<Tag> UpdateAsync(Tag tag);
+    Task<bool> DeleteAsync(long id);
+    Task<bool> NameExistsAsync(string name, long? excludeId = null);
+
+    // Question-Tag assignments
+    Task<List<Tag>> GetTagsByQuestionAsync(long questionId);
+    Task<List<Question>> GetQuestionsByTagAsync(long tagId);
+    Task<bool> AssignTagToQuestionAsync(long questionId, long tagId);
+    Task<bool> RemoveTagFromQuestionAsync(long questionId, long tagId);
+    Task<bool> IsTagAssignedToQuestionAsync(long questionId, long tagId);
+}
+
+public interface IAnswerRepository
+{
+    Task<Answer?> GetByAttemptAndQuestionAsync(long attemptId, long questionId);
+    Task<List<Answer>> GetByAttemptIdAsync(long attemptId);
+    Task<Answer> CreateAsync(Answer answer);
+    Task<Answer> UpdateAsync(Answer answer);
+    Task<bool> CreateAnswerOptionAsync(AnswerOption answerOption);
+    Task DeleteAnswerOptionsByAnswerIdAsync(long answerId);
+}
+
+public interface IGradingResultRepository
+{
+    Task<GradingResult?> GetByAttemptAndQuestionAsync(long attemptId, long questionId);
+    Task<List<GradingResult>> GetByAttemptIdAsync(long attemptId);
+    Task<GradingResult> CreateAsync(GradingResult result);
+    Task<GradingResult> UpdateAsync(GradingResult result);
+    Task<List<GradingResult>> GetByExamIdAsync(long examId);
+}
+
+public interface IExamStatisticRepository
+{
+    Task<ExamStatistic?> GetByExamIdAsync(long examId);
+    Task<ExamStatistic> CreateAsync(ExamStatistic stat);
+    Task<ExamStatistic> UpdateOrCreateAsync(ExamStatistic stat);
+}
+
+public interface IExamViolationRepository
+{
+    Task<List<ExamViolation>> GetByAttemptIdAsync(long attemptId);
+    Task<ExamViolation> CreateAsync(ExamViolation violation);
+}
+
+public interface INotificationRepository
+{
+    Task<List<Notification>> GetByUserIdAsync(long userId, bool? unreadOnly = null);
+    Task<Notification?> GetByIdAsync(long id);
+    Task<Notification> CreateAsync(Notification notification);
+    Task<bool> DeleteAsync(long id);
+    Task<bool> MarkAsReadAsync(long id);
+    Task<bool> MarkAllAsReadAsync(long userId);
+    Task<int> GetUnreadCountAsync(long userId);
+}
+
+public interface IActivityLogRepository
+{
+    Task<ActivityLog> CreateAsync(ActivityLog log);
+    Task<(List<ActivityLog> Logs, int TotalCount)> GetAllAsync(int page, int pageSize, string? action = null, long? userId = null, DateTime? from = null, DateTime? to = null);
 }

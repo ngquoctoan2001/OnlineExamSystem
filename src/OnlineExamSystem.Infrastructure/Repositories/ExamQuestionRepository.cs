@@ -28,6 +28,8 @@ public class ExamQuestionRepository : IExamQuestionRepository
         return await _context.ExamQuestions
             .AsNoTracking()
             .Include(eq => eq.Question)
+            .ThenInclude(q => q.QuestionType)
+            .Include(eq => eq.Question)
             .ThenInclude(q => q.QuestionOptions)
             .Where(eq => eq.ExamId == examId)
             .OrderBy(eq => eq.QuestionOrder)

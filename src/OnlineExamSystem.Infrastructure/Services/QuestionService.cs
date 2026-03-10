@@ -10,17 +10,20 @@ public class QuestionService : IQuestionService
     private readonly IQuestionRepository _questionRepository;
     private readonly IQuestionOptionRepository _optionRepository;
     private readonly ISubjectRepository _subjectRepository;
+    private readonly ITagRepository _tagRepository;
     private readonly ILogger<QuestionService> _logger;
 
     public QuestionService(
         IQuestionRepository questionRepository,
         IQuestionOptionRepository optionRepository,
         ISubjectRepository subjectRepository,
+        ITagRepository tagRepository,
         ILogger<QuestionService> logger)
     {
         _questionRepository = questionRepository;
         _optionRepository = optionRepository;
         _subjectRepository = subjectRepository;
+        _tagRepository = tagRepository;
         _logger = logger;
     }
 
@@ -295,8 +298,170 @@ public class QuestionService : IQuestionService
         }
     }
 
-    private async Task<QuestionDetailResponse> GetQuestionDetailResponseAsync(Question question)
+    public async Task<(bool Success, string Message, List<QuestionResponse>? Data)> GetQuestionsByTagAsync(long tagId)
     {
+        try
+        {
+            var questions = await _tagRepository.GetQuestionsByTagAsync(tagId);
+            var items = await MapToResponseListAsync(questions);
+            return (true, "Success", items);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting questions by tag");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, QuestionOptionResponse? Data)> AddOptionAsync(long questionId, CreateQuestionOptionRequest request)
+    {
+        try
+        {
+            var question = await _questionRepository.GetByIdAsync(questionId);
+            if (question == null)
+                return (false, "Question not found", null);
+
+            var option = new QuestionOption
+            {
+                QuestionId = questionId,
+                Label = request.Label,
+                Content = request.Content,
+                IsCorrect = request.IsCorrect,
+                OrderIndex = request.OrderIndex
+            };
+
+            await _optionRepository.CreateAsync(option);
+
+            return (true, "Option added successfully", new QuestionOptionResponse
+            {
+                Id = option.Id,
+                QuestionId = option.QuestionId,
+                Label = option.Label,
+                Content = option.Content,
+                IsCorrect = option.IsCorrect,
+                OrderIndex = option.OrderIndex
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error adding option");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, QuestionOptionResponse? Data)> UpdateOptionAsync(long questionId, long optionId, CreateQuestionOptionRequest request)
+    {
+        try
+        {
+            var option = await _optionRepository.GetByIdAsync(optionId);
+            if (option == null || option.QuestionId != questionId)
+                return (false, "Option not found", null);
+
+            option.Label = request.Label;
+            option.Content = request.Content;
+            option.IsCorrect = request.IsCorrect;
+            option.OrderIndex = request.OrderIndex;
+
+            await _optionRepository.UpdateAsync(option);
+
+            return (true, "Option updated successfully", new QuestionOptionResponse
+            {
+                Id = option.Id,
+                QuestionId = option.QuestionId,
+                Label = option.Label,
+                Content = option.Content,
+                IsCorrect = option.IsCorrect,
+                OrderIndex = option.OrderIndex
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating option");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message)> DeleteOptionAsync(long questionId, long optionId)
+    {
+        try
+        {
+            var option = await _optionRepository.GetByIdAsync(optionId);
+            if (option == null || option.QuestionId != questionId)
+                return (false, "Option not found");
+
+            await _optionRepository.DeleteAsync(optionId);
+            return (true, "Option deleted successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error deleting option");
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool Success, string Message)> AssignTagAsync(long questionId, long tagId)
+    {
+        try
+        {
+            var question = await _questionRepository.GetByIdAsync(questionId);
+            if (question == null)
+                return (false, "Question not found");
+
+            var tag = await _tagRepository.GetByIdAsync(tagId);
+            if (tag == null)
+                return (false, "Tag not found");
+
+            await _tagRepository.AssignTagToQuestionAsync(questionId, tagId);
+            return (true, "Tag assigned successfully");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error assigning tag");
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool Success, string Message)> RemoveTagAsync(long questionId, long tagId)
+    {
+        try
+        {
+            var removed = await _tagRepository.RemoveTagFromQuestionAsync(questionId, tagId);
+            return removed ? (true, "Tag removed successfully") : (false, "Tag assignment not found");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error removing tag");
+            return (false, $"Error: {ex.Message}");
+        }
+    }
+
+    public async Task<(bool Success, string Message, List<TagResponse>? Data)> GetQuestionTagsAsync(long questionId)
+    {
+        try
+        {
+            var question = await _questionRepository.GetByIdAsync(questionId);
+            if (question == null)
+                return (false, "Question not found", null);
+
+            var tags = await _tagRepository.GetTagsByQuestionAsync(questionId);
+            var result = tags.Select(t => new TagResponse
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Description = t.Description,
+                CreatedAt = t.CreatedAt
+            }).ToList();
+
+            return (true, "Success", result);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting question tags");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    private async Task<QuestionDetailResponse> GetQuestionDetailResponseAsync(Question question)    {
         var options = await _optionRepository.GetByQuestionIdAsync(question.Id);
         return new QuestionDetailResponse
         {
