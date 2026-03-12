@@ -16,16 +16,29 @@ apiClient.interceptors.request.use((config) => {
   return config
 })
 
-// Handle 401 – clear token and redirect to login
+// Handle 401 and 429 responses
 apiClient.interceptors.response.use(
   (res) => res,
-  (error) => {
-    if (error.response?.status === 401) {
+  async (error) => {
+    const config = error.config
+
+    // Handle 429 – retry after delay (max 2 retries)
+    if (error.response?.status === 429 && (!config._retryCount || config._retryCount < 2)) {
+      config._retryCount = (config._retryCount || 0) + 1
+      const retryAfter = error.response.headers['retry-after']
+      const delay = retryAfter ? Math.min(parseInt(retryAfter, 10) * 1000, 30000) : 5000
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return apiClient(config)
+    }
+
+    // Handle 401 – clear token and redirect to login (skip if already on login page)
+    if (error.response?.status === 401 && !window.location.pathname.includes('/login')) {
       localStorage.removeItem('accessToken')
       localStorage.removeItem('refreshToken')
       localStorage.removeItem('user')
       window.location.href = '/login'
     }
+
     return Promise.reject(error)
   }
 )

@@ -197,12 +197,12 @@ export default function StudentsPage() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
             />
           </div>
-          <select className="form-control" style={{ width: 150 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'active' | 'inactive')}>
+          <select className="form-control" style={{ minWidth: 170, width: 'auto' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'active' | 'inactive')}>
             <option value="">Tất cả trạng thái</option>
             <option value="active">Hoạt động</option>
             <option value="inactive">Tạm khóa</option>
           </select>
-          <select className="form-control" style={{ width: 160 }} value={filterClassId} onChange={e => { setFilterClassId(Number(e.target.value)); setPage(1) }}>
+          <select className="form-control" style={{ minWidth: 180, width: 'auto' }} value={filterClassId} onChange={e => { setFilterClassId(Number(e.target.value)); setPage(1) }}>
             <option value={0}>Tất cả lớp</option>
             {allClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>

@@ -142,8 +142,8 @@ function ExamStatisticsSection({ role, userId }: { role: string; userId?: number
       {/* Exam selector */}
       <div style={{ marginBottom: 16 }}>
         <select
-          className="form-input"
-          style={{ maxWidth: 400 }}
+          className="form-control"
+          style={{ minWidth: 300, width: 'auto', maxWidth: '100%' }}
           value={selectedExamId ?? ''}
           onChange={e => setSelectedExamId(e.target.value ? Number(e.target.value) : null)}
         >
@@ -345,8 +345,8 @@ function ClassResultsSection() {
       {/* Selectors */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 16, flexWrap: 'wrap' }}>
         <select
-          className="form-input"
-          style={{ maxWidth: 280 }}
+          className="form-control"
+          style={{ minWidth: 220, width: 'auto', maxWidth: '100%' }}
           value={selectedClassId ?? ''}
           onChange={e => setSelectedClassId(e.target.value ? Number(e.target.value) : null)}
         >
@@ -356,8 +356,8 @@ function ClassResultsSection() {
           ))}
         </select>
         <select
-          className="form-input"
-          style={{ maxWidth: 320 }}
+          className="form-control"
+          style={{ minWidth: 300, width: 'auto', maxWidth: '100%' }}
           value={selectedExamId ?? ''}
           onChange={e => setSelectedExamId(e.target.value ? Number(e.target.value) : null)}
         >

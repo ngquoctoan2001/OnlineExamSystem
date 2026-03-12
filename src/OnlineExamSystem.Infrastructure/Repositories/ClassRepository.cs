@@ -318,4 +318,18 @@ public class ClassRepository : IClassRepository
             throw;
         }
     }
+
+    public async Task RemoveStudentFromAllClassesAsync(long studentId)
+    {
+        var enrollments = await _context.ClassStudents
+            .Where(cs => cs.StudentId == studentId)
+            .ToListAsync();
+
+        if (enrollments.Count > 0)
+        {
+            _context.ClassStudents.RemoveRange(enrollments);
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Removed student {StudentId} from {Count} class(es)", studentId, enrollments.Count);
+        }
+    }
 }

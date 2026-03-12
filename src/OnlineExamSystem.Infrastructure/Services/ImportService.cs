@@ -222,6 +222,42 @@ public class ImportService : IImportService
                     {
                         result.SuccessCount++;
                         _logger.LogInformation($"Successfully imported student: {row.StudentCode}");
+
+                        // Auto-assign to class if ClassName is provided
+                        if (!string.IsNullOrWhiteSpace(row.ClassName) && data != null)
+                        {
+                            try
+                            {
+                                var className = row.ClassName.Trim();
+                                var cls = await _context.Classes.FirstOrDefaultAsync(c => c.Name == className);
+                                if (cls != null)
+                                {
+                                    // Remove from any existing class first (1 student = 1 class)
+                                    var existing = await _context.ClassStudents
+                                        .Where(cs => cs.StudentId == data.Id)
+                                        .ToListAsync();
+                                    if (existing.Count > 0)
+                                        _context.ClassStudents.RemoveRange(existing);
+
+                                    _context.ClassStudents.Add(new ClassStudent
+                                    {
+                                        ClassId = cls.Id,
+                                        StudentId = data.Id,
+                                        EnrolledAt = DateTime.UtcNow
+                                    });
+                                    await _context.SaveChangesAsync();
+                                    _logger.LogInformation($"Assigned student {row.StudentCode} to class {className}");
+                                }
+                                else
+                                {
+                                    _logger.LogWarning($"Class '{className}' not found for student {row.StudentCode}");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                _logger.LogWarning($"Failed to assign student {row.StudentCode} to class: {ex.Message}");
+                            }
+                        }
                     }
                     else
                     {

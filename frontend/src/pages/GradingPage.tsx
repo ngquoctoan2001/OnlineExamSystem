@@ -70,7 +70,7 @@ export default function GradingPage() {
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
             />
-            <select className="form-control" style={{ width: 160, height: 36, fontSize: 13 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+            <select className="form-control" style={{ minWidth: 180, width: 'auto', height: 36, fontSize: 13 }} value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
               <option value="">Tất cả trạng thái</option>
               <option value="ACTIVE">Đang mở</option>
               <option value="CLOSED">Đã đóng</option>

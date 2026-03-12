@@ -154,6 +154,13 @@ public class TeacherService : ITeacherService
 
             var createdUser = await _userRepository.CreateAsync(user);
 
+            // Assign TEACHER role
+            var teacherRole = await _userRepository.GetRoleByNameAsync("TEACHER");
+            if (teacherRole != null)
+            {
+                await _userRepository.AssignRoleToUserAsync(createdUser.Id, teacherRole.Id);
+            }
+
             // Create teacher record
             var teacher = new Teacher
             {

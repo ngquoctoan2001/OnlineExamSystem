@@ -247,11 +247,11 @@ export default function TeachersPage() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
             />
           </div>
-          <select className="form-control" style={{ width: 180 }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
+          <select className="form-control" style={{ minWidth: 200, width: 'auto' }} value={filterDept} onChange={e => setFilterDept(e.target.value)}>
             <option value="">Tất cả bộ môn</option>
             {deptList.map(d => <option key={d} value={d}>{d}</option>)}
           </select>
-          <select className="form-control" style={{ width: 150 }} value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'active' | 'inactive')}>
+          <select className="form-control" style={{ minWidth: 170, width: 'auto' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value as '' | 'active' | 'inactive')}>
             <option value="">Tất cả trạng thái</option>
             <option value="active">Hoạt động</option>
             <option value="inactive">Tạm khóa</option>

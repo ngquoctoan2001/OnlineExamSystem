@@ -229,7 +229,7 @@ public class StudentsController : ControllerBase
     /// Get classes enrolled by student
     /// </summary>
     [HttpGet("{id}/classes")]
-    [Authorize(Roles = "ADMIN,TEACHER")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<List<StudentClassEnrollmentResponse>>>> GetStudentClasses(long id)
     {
         _logger.LogInformation("Getting classes for student: {StudentId}", id);

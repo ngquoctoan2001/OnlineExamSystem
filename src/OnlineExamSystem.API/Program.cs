@@ -88,23 +88,33 @@ builder.Services.AddInfrastructure(builder.Configuration);
 builder.Services.AddRateLimiter(options =>
 {
     var isTest = builder.Environment.IsEnvironment("Test");
-    // Auth endpoints: 10 req/minute per IP (unlimited in Test)
+    // Auth endpoints: 30 req/minute per IP (unlimited in Test)
     options.AddFixedWindowLimiter("auth", opt =>
     {
-        opt.PermitLimit = isTest ? int.MaxValue : 10;
+        opt.PermitLimit = isTest ? int.MaxValue : 30;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 0;
+        opt.QueueLimit = 2;
     });
-    // General API: 200 req/minute per IP (unlimited in Test)
+    // General API: 600 req/minute per IP (unlimited in Test)
     options.AddFixedWindowLimiter("api", opt =>
     {
-        opt.PermitLimit = isTest ? int.MaxValue : 200;
+        opt.PermitLimit = isTest ? int.MaxValue : 600;
         opt.Window = TimeSpan.FromMinutes(1);
         opt.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
-        opt.QueueLimit = 5;
+        opt.QueueLimit = 10;
     });
     options.RejectionStatusCode = 429;
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.Headers.RetryAfter = "30";
+        context.HttpContext.Response.ContentType = "application/json";
+        await context.HttpContext.Response.WriteAsJsonAsync(new
+        {
+            success = false,
+            message = "Quá nhiều yêu cầu. Vui lòng thử lại sau 30 giây."
+        }, cancellationToken);
+    };
 });
 
 // Authentication services

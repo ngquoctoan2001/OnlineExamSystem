@@ -139,7 +139,6 @@ export default function ClassDetailPage() {
           <div>
             <h2 style={{ marginBottom: 4 }}>{classInfo.name}</h2>
             <div style={{ display: 'flex', gap: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
-              <span>Mã lớp: <strong>{classInfo.code}</strong></span>
               <span>Khối: <strong>{classInfo.grade}</strong></span>
               <span>GVCN: <strong>{classInfo.homeroomTeacherName || 'Chưa phân công'}</strong></span>
             </div>

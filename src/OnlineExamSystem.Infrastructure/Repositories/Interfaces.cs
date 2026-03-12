@@ -81,6 +81,7 @@ public interface IClassRepository
     Task<bool> AddStudentToClassAsync(long classId, long studentId);
     Task<bool> RemoveStudentFromClassAsync(long classId, long studentId);
     Task<bool> StudentEnrolledInClassAsync(long classId, long studentId);
+    Task RemoveStudentFromAllClassesAsync(long studentId);
 }
 
 public interface ISubjectRepository

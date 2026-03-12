@@ -235,7 +235,10 @@ function StudentExamView({ user, navigate }: { user: { id: number; studentId?: n
                         <div style={{ fontWeight: 600, fontSize: 15 }}>{exam.title}</div>
                         <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 2 }}>{exam.subjectName}</div>
                       </div>
-                      <span className="badge badge-blue">Sắp tới</span>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {exam.status === 'DRAFT' && <span className="badge badge-gray">Chưa kích hoạt</span>}
+                        <span className="badge badge-blue">Sắp tới</span>
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 16, fontSize: 13, color: 'var(--text-secondary)' }}>
                       <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
@@ -508,11 +511,11 @@ export default function ExamsPage() {
           <span className="material-icons input-icon">search</span>
           <input className="form-control" placeholder="Tìm kỳ thi..." value={search} onChange={e => { setSearch(e.target.value); setPage(1) }} />
         </div>
-        <select className="form-control" style={{ width: 160 }} value={filterSubject} onChange={e => { setFilterSubject(Number(e.target.value)); setPage(1) }}>
+        <select className="form-control" style={{ minWidth: 180, width: 'auto' }} value={filterSubject} onChange={e => { setFilterSubject(Number(e.target.value)); setPage(1) }}>
           <option value={0}>Tất cả môn</option>
           {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
-        <select className="form-control" style={{ width: 180 }} value={filterTeacher} onChange={e => { setFilterTeacher(Number(e.target.value)); setPage(1) }}>
+        <select className="form-control" style={{ minWidth: 200, width: 'auto' }} value={filterTeacher} onChange={e => { setFilterTeacher(Number(e.target.value)); setPage(1) }}>
           <option value={0}>Tất cả giáo viên</option>
           {teachers.map(t => <option key={t.id} value={t.id}>{t.fullName}</option>)}
         </select>

@@ -75,7 +75,7 @@ export default function Sidebar() {
       </div>
 
       <div className="sidebar-footer">
-        <div className="user-info">
+        <div className="user-info" onClick={() => navigate('/profile')} style={{ cursor: 'pointer' }} title="Xem hồ sơ cá nhân">
           <div className="user-avatar">{initials}</div>
           <div className="user-details">
             <div className="user-name">{user?.fullName || user?.username}</div>

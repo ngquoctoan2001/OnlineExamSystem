@@ -113,7 +113,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
       return { success: false, message: res.data.message || 'Đăng nhập thất bại' }
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } }
+      const e = err as { response?: { status?: number; data?: { message?: string } } }
+      if (e.response?.status === 429) {
+        return { success: false, message: e.response?.data?.message || 'Quá nhiều yêu cầu. Vui lòng thử lại sau 30 giây.' }
+      }
       return { success: false, message: e.response?.data?.message || 'Lỗi kết nối máy chủ' }
     }
   }

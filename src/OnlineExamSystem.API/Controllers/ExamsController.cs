@@ -205,7 +205,7 @@ public class ExamsController : ControllerBase
     }
 
     /// <summary>
-    /// Get available exams for student (currently active)
+    /// Get available exams for student (currently active and within time window)
     /// </summary>
     [HttpGet("student/{studentId}/available")]
     [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
@@ -216,6 +216,8 @@ public class ExamsController : ControllerBase
             return NotFound(new ResponseResult<object> { Success = false, Message = "Student not found" });
 
         var classIds = (await _studentRepository.GetStudentClassesAsync(studentId)).Select(cs => cs.ClassId).Distinct().ToList();
+        _logger.LogInformation("Student {StudentId} belongs to {ClassCount} classes: [{ClassIds}]", studentId, classIds.Count, string.Join(", ", classIds));
+
         var attempted = (await _examAttemptRepository.GetStudentAttemptsAsync(studentId))
             .Where(a => a.Status is "SUBMITTED" or "GRADED")
             .Select(a => a.ExamId)
@@ -227,13 +229,25 @@ public class ExamsController : ControllerBase
         foreach (var classId in classIds)
         {
             var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+            _logger.LogInformation("Class {ClassId} has {ExamCount} assigned exams", classId, examClasses.Count);
+
             foreach (var examClass in examClasses)
             {
                 if (attempted.Contains(examClass.ExamId))
                     continue;
 
                 var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
-                if (exam == null || exam.Status != "ACTIVE" || exam.StartTime > now || exam.EndTime < now)
+                if (exam == null)
+                    continue;
+
+                // Show ACTIVE or DRAFT exams that are within the time window
+                var isActiveOrDraft = exam.Status is "ACTIVE" or "DRAFT";
+                var inTimeWindow = exam.StartTime <= now && exam.EndTime >= now;
+
+                _logger.LogInformation("Exam {ExamId} '{Title}': Status={Status}, StartTime={Start}, EndTime={End}, Now={Now}, InTimeWindow={InWindow}",
+                    exam.Id, exam.Title, exam.Status, exam.StartTime, exam.EndTime, now, inTimeWindow);
+
+                if (!(isActiveOrDraft && inTimeWindow))
                     continue;
 
                 exams.Add(new ExamResponse
@@ -253,6 +267,7 @@ public class ExamsController : ControllerBase
             }
         }
 
+        _logger.LogInformation("Returning {Count} available exams for student {StudentId}", exams.Count, studentId);
         return Ok(new ResponseResult<List<ExamResponse>>
         {
             Success = true,
@@ -262,7 +277,7 @@ public class ExamsController : ControllerBase
     }
 
     /// <summary>
-    /// Get upcoming exams for student
+    /// Get upcoming exams for student (not yet started, including DRAFT)
     /// </summary>
     [HttpGet("student/{studentId}/upcoming")]
     [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
@@ -282,7 +297,15 @@ public class ExamsController : ControllerBase
             foreach (var examClass in examClasses)
             {
                 var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
-                if (exam == null || exam.Status != "ACTIVE" || exam.StartTime <= now)
+                if (exam == null)
+                    continue;
+
+                // Show upcoming exams: ACTIVE or DRAFT, not yet started or not yet ended
+                var isRelevantStatus = exam.Status is "ACTIVE" or "DRAFT";
+                var isUpcoming = exam.StartTime > now;
+                var isOngoing = exam.StartTime <= now && exam.EndTime >= now && exam.Status == "DRAFT";
+
+                if (!isRelevantStatus || (!isUpcoming && !isOngoing))
                     continue;
 
                 exams.Add(new ExamResponse
@@ -302,6 +325,7 @@ public class ExamsController : ControllerBase
             }
         }
 
+        _logger.LogInformation("Returning {Count} upcoming exams for student {StudentId}", exams.Count, studentId);
         return Ok(new ResponseResult<List<ExamResponse>>
         {
             Success = true,

@@ -330,12 +330,15 @@ public class ClassService : IClassService
                 return (false, "Student not found");
             }
 
-            // Check if already enrolled
+            // Check if already enrolled in this class
             var alreadyEnrolled = await _classRepository.StudentEnrolledInClassAsync(classId, studentId);
             if (alreadyEnrolled)
             {
                 return (false, "Student is already enrolled in this class");
             }
+
+            // Remove student from any existing class (1 student = 1 class)
+            await _classRepository.RemoveStudentFromAllClassesAsync(studentId);
 
             var result = await _classRepository.AddStudentToClassAsync(classId, studentId);
             if (!result)

@@ -146,7 +146,7 @@ public class ClassesController : ControllerBase
     /// Get class by ID
     /// </summary>
     [HttpGet("{id}")]
-    [Authorize(Roles = "ADMIN,TEACHER")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<ClassResponse>>> GetById(long id)
     {
         _logger.LogInformation("Getting class: {ClassId}", id);
@@ -360,7 +360,7 @@ public class ClassesController : ControllerBase
     /// Get teachers assigned to a class
     /// </summary>
     [HttpGet("{id}/teachers")]
-    [Authorize(Roles = "ADMIN,TEACHER")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<List<TeacherAssignmentResponse>>>> GetClassTeachers(long id)
     {
         _logger.LogInformation("Getting teachers for class: {ClassId}", id);

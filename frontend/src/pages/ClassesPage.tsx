@@ -56,8 +56,12 @@ export default function ClassesPage() {
   }
 
   const handleSave = async () => {
-    if (!form.name || !form.code) {
-      setError('Vui lòng điền tên lớp và mã lớp'); return
+    if (!form.name) {
+      setError('Vui lòng điền tên lớp'); return
+    }
+    // Auto-generate code from name if empty
+    if (!form.code) {
+      form.code = form.name.replace(/\s+/g, '').toUpperCase()
     }
     setSaving(true); setError('')
     try {
@@ -103,7 +107,7 @@ export default function ClassesPage() {
               onChange={e => { setSearch(e.target.value); setPage(1) }}
             />
           </div>
-          <select className="form-control" style={{ width: 140 }} value={filterGrade} onChange={e => setFilterGrade(Number(e.target.value))}>
+          <select className="form-control" style={{ minWidth: 160, width: 'auto' }} value={filterGrade} onChange={e => setFilterGrade(Number(e.target.value))}>
             <option value={0}>Tất cả khối</option>
             <option value={10}>Khối 10</option>
             <option value={11}>Khối 11</option>
@@ -125,7 +129,6 @@ export default function ClassesPage() {
                 <tr>
                   <th>#</th>
                   <th>Tên lớp</th>
-                  <th>Mã lớp</th>
                   <th>Khối</th>
                   <th>GVCN</th>
                   <th>Sĩ số</th>
@@ -138,7 +141,6 @@ export default function ClassesPage() {
                   <tr key={c.id}>
                     <td style={{ color: 'var(--text-muted)' }}>{(page - 1) * pageSize + idx + 1}</td>
                     <td><div style={{ fontWeight: 500 }}>{c.name}</div></td>
-                    <td><span className="badge badge-blue">{c.code}</span></td>
                     <td>{c.grade}</td>
                     <td>{c.homeroomTeacherName || <span style={{ color: 'var(--text-muted)' }}>Chưa phân công</span>}</td>
                     <td>
@@ -197,10 +199,7 @@ export default function ClassesPage() {
                   <label className="form-label">Tên lớp *</label>
                   <input className="form-control" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Lớp 10A1" />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Mã lớp *</label>
-                  <input className="form-control" value={form.code} onChange={e => setForm(f => ({ ...f, code: e.target.value }))} placeholder="10A1" />
-                </div>
+
                 <div className="form-group">
                   <label className="form-label">Khối *</label>
                   <select className="form-control" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: Number(e.target.value) }))}>
