@@ -1,15 +1,25 @@
 import apiClient from './client'
+import type { ApiResponse, ExamStatisticResponse, ScoreDistributionResponse, StudentPerformanceResponse, ClassResultsResponse } from '../types/api'
 
 export const statisticsApi = {
-  getDashboard: () =>
-    apiClient.get('/statistics/dashboard'),
+  // Exam statistics
+  calculateExamStats: (examId: number) =>
+    apiClient.post<ApiResponse<ExamStatisticResponse>>(`/statistics/exams/${examId}/calculate`),
 
   getExamStats: (examId: number) =>
-    apiClient.get(`/statistics/exam/${examId}`),
+    apiClient.get<ApiResponse<ExamStatisticResponse>>(`/statistics/exams/${examId}`),
 
-  getStudentStats: (studentId: number) =>
-    apiClient.get(`/statistics/student/${studentId}`),
+  getScoreDistribution: (examId: number) =>
+    apiClient.get<ApiResponse<ScoreDistributionResponse>>(`/statistics/exams/${examId}/distribution`),
 
-  getOverview: () =>
-    apiClient.get('/statistics/overview'),
+  // Student performance
+  getStudentPerformance: (studentId: number) =>
+    apiClient.get<ApiResponse<StudentPerformanceResponse>>(`/statistics/students/${studentId}/performance`),
+
+  // Class results
+  getClassResults: (classId: number, examId: number) =>
+    apiClient.get<ApiResponse<ClassResultsResponse>>(`/statistics/classes/${classId}/results`, { params: { examId } }),
+
+  exportClassResults: (classId: number, examId: number) =>
+    apiClient.get(`/statistics/classes/${classId}/results/export`, { params: { examId }, responseType: 'blob' }),
 }

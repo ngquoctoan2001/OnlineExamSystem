@@ -61,3 +61,44 @@ public class ClassResultsResponse
     public decimal AverageScore { get; set; }
     public List<StudentAttemptSummary> StudentResults { get; set; } = new();
 }
+
+public class ScoreResponse
+{
+    public long AttemptId { get; set; }
+    public long ExamId { get; set; }
+    public string ExamTitle { get; set; } = string.Empty;
+    public long StudentId { get; set; }
+    public string StudentName { get; set; } = string.Empty;
+    public decimal? Score { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public DateTime StartTime { get; set; }
+    public DateTime? EndTime { get; set; }
+}
+
+public class ExamRankingResponse
+{
+    public long ExamId { get; set; }
+    public string ExamTitle { get; set; } = string.Empty;
+    public List<RankingEntry> Rankings { get; set; } = new();
+}
+
+public class RankingEntry
+{
+    public int Rank { get; set; }
+    public long StudentId { get; set; }
+    public string StudentName { get; set; } = string.Empty;
+    public decimal? Score { get; set; }
+    public DateTime? SubmittedAt { get; set; }
+}
+
+public class SystemStatsResponse
+{
+    public int TotalUsers { get; set; }
+    public int TotalTeachers { get; set; }
+    public int TotalStudents { get; set; }
+    public int TotalClasses { get; set; }
+    public int TotalExams { get; set; }
+    public int TotalQuestions { get; set; }
+    public int ActiveExams { get; set; }
+    public int TotalAttempts { get; set; }
+}

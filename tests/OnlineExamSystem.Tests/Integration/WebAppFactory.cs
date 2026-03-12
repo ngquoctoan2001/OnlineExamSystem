@@ -50,37 +50,71 @@ public class WebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
     private static async Task SeedAsync(ApplicationDbContext db, IPasswordHasher passwordHasher)
     {
-        // DataSeeder (run at Program.cs startup) already created Roles, Permissions, QuestionTypes.
-        // We only need to add test users and related entities.
-        if (db.Users.Any()) return;
+        // DataSeeder (run at Program.cs startup) already created Roles, Permissions, QuestionTypes,
+        // and a default admin user. We need to ensure test users exist with known passwords.
 
         // Look up roles by name to get the auto-generated IDs from DataSeeder
         var adminRole   = db.Roles.FirstOrDefault(r => r.Name == "ADMIN");
         var teacherRole = db.Roles.FirstOrDefault(r => r.Name == "TEACHER");
         var studentRole = db.Roles.FirstOrDefault(r => r.Name == "STUDENT");
 
-        // Users — use the same IPasswordHasher that AuthService uses for verification
-        var adminUser   = new User { Username = "admin",    Email = "admin@test.local",    PasswordHash = passwordHasher.HashPassword("Admin123!"),   FullName = "Admin User",  IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-        var teacherUser = new User { Username = "teacher1", Email = "teacher1@test.local", PasswordHash = passwordHasher.HashPassword("Teacher123!"), FullName = "Teacher One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-        var studentUser = new User { Username = "student1", Email = "student1@test.local", PasswordHash = passwordHasher.HashPassword("Student123!"), FullName = "Student One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-        db.Users.AddRange(adminUser, teacherUser, studentUser);
-        await db.SaveChangesAsync(); // flush to get auto-assigned user IDs
+        // Update existing admin user's password to match test expectations, or create if missing
+        var existingAdmin = db.Users.FirstOrDefault(u => u.Username == "admin");
+        if (existingAdmin != null)
+        {
+            existingAdmin.PasswordHash = passwordHasher.HashPassword("Admin123!");
+            existingAdmin.IsActive = true;
+        }
+        else
+        {
+            existingAdmin = new User { Username = "admin", Email = "admin@test.local", PasswordHash = passwordHasher.HashPassword("Admin123!"), FullName = "Admin User", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+            db.Users.Add(existingAdmin);
+            await db.SaveChangesAsync();
+            if (adminRole != null) db.UserRoles.Add(new UserRole { UserId = existingAdmin.Id, RoleId = adminRole.Id, AssignedAt = DateTime.UtcNow });
+        }
 
-        // UserRoles using actual role IDs from DataSeeder
-        if (adminRole   != null) db.UserRoles.Add(new UserRole { UserId = adminUser.Id,   RoleId = adminRole.Id,   AssignedAt = DateTime.UtcNow });
-        if (teacherRole != null) db.UserRoles.Add(new UserRole { UserId = teacherUser.Id, RoleId = teacherRole.Id, AssignedAt = DateTime.UtcNow });
-        if (studentRole != null) db.UserRoles.Add(new UserRole { UserId = studentUser.Id, RoleId = studentRole.Id, AssignedAt = DateTime.UtcNow });
+        // Ensure teacher1 exists with known test password
+        var existingTeacher = db.Users.FirstOrDefault(u => u.Username == "teacher1");
+        if (existingTeacher != null)
+        {
+            existingTeacher.PasswordHash = passwordHasher.HashPassword("Teacher123!");
+            existingTeacher.IsActive = true;
+        }
+        else
+        {
+            existingTeacher = new User { Username = "teacher1", Email = "teacher1@test.local", PasswordHash = passwordHasher.HashPassword("Teacher123!"), FullName = "Teacher One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+            db.Users.Add(existingTeacher);
+            await db.SaveChangesAsync();
+            if (teacherRole != null) db.UserRoles.Add(new UserRole { UserId = existingTeacher.Id, RoleId = teacherRole.Id, AssignedAt = DateTime.UtcNow });
 
-        // School (required FK for Class)
-        var school = new School { Name = "Test School", Address = "123 St", Phone = "0100" };
-        db.Schools.Add(school);
-        await db.SaveChangesAsync(); // flush to get school ID
+            if (!db.Teachers.Any(t => t.UserId == existingTeacher.Id))
+                db.Teachers.Add(new Teacher { UserId = existingTeacher.Id, EmployeeId = "EMP001", Department = "Math" });
+        }
 
-        // Class, Teacher, Student, Subject
-        db.Classes.Add(new Class   { SchoolId = school.Id, Name = "10A1", Code = "10A1", Grade = 10 });
-        db.Teachers.Add(new Teacher { UserId = teacherUser.Id, EmployeeId = "EMP001", Department = "Math" });
-        db.Students.Add(new Student { UserId = studentUser.Id, StudentCode = "STU001", RollNumber = "R001" });
-        db.Subjects.Add(new Subject { Name = "Mathematics", Code = "MATH", Description = "Math subject" });
+        if (!db.Users.Any(u => u.Username == "student1"))
+        {
+            var studentUser = new User { Username = "student1", Email = "student1@test.local", PasswordHash = passwordHasher.HashPassword("Student123!"), FullName = "Student One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+            db.Users.Add(studentUser);
+            await db.SaveChangesAsync();
+            if (studentRole != null) db.UserRoles.Add(new UserRole { UserId = studentUser.Id, RoleId = studentRole.Id, AssignedAt = DateTime.UtcNow });
+
+            if (!db.Students.Any(s => s.UserId == studentUser.Id))
+                db.Students.Add(new Student { UserId = studentUser.Id, StudentCode = "STU001", RollNumber = "R001" });
+        }
+
+        // Ensure school and class exist
+        if (!db.Schools.Any())
+        {
+            var school = new School { Name = "Test School", Address = "123 St", Phone = "0100" };
+            db.Schools.Add(school);
+            await db.SaveChangesAsync();
+
+            if (!db.Classes.Any())
+                db.Classes.Add(new Class { SchoolId = school.Id, Name = "10A1", Code = "10A1", Grade = 10 });
+        }
+
+        if (!db.Subjects.Any(s => s.Code == "MATH"))
+            db.Subjects.Add(new Subject { Name = "Mathematics", Code = "MATH", Description = "Math subject" });
 
         await db.SaveChangesAsync();
     }

@@ -23,3 +23,13 @@ public class CreateNotificationRequest
     public long? RelatedEntityId { get; set; }
     public string? RelatedEntityType { get; set; }
 }
+
+public class SendNotificationToClassRequest
+{
+    public long ClassId { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public long? RelatedEntityId { get; set; }
+    public string? RelatedEntityType { get; set; }
+}

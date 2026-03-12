@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using OnlineExamSystem.Infrastructure;
 using OnlineExamSystem.Infrastructure.Services;
@@ -134,6 +135,7 @@ builder.Services.AddScoped<IExamStatisticRepository, ExamStatisticRepository>();
 builder.Services.AddScoped<IExamViolationRepository, ExamViolationRepository>();
 builder.Services.AddScoped<INotificationRepository, NotificationRepository>();
 builder.Services.AddScoped<IActivityLogRepository, ActivityLogRepository>();
+builder.Services.AddScoped<ISubjectExamTypeRepository, SubjectExamTypeRepository>();
 
 // Import services
 builder.Services.AddScoped<IExcelParserService, ExcelParserService>();
@@ -187,6 +189,10 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    if (!app.Environment.IsEnvironment("Test"))
+        await dbContext.Database.MigrateAsync();
+    else
+        await dbContext.Database.EnsureCreatedAsync();
     var seeder = scope.ServiceProvider.GetRequiredService<IDataSeeder>();
     await seeder.SeedAsync(dbContext);
 }

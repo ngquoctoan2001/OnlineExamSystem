@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
+using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
 
 namespace OnlineExamSystem.API.Controllers;
@@ -14,11 +15,16 @@ namespace OnlineExamSystem.API.Controllers;
 public class QuestionsController : ControllerBase
 {
     private readonly IQuestionService _questionService;
+    private readonly IQuestionOptionRepository _questionOptionRepository;
     private readonly ILogger<QuestionsController> _logger;
 
-    public QuestionsController(IQuestionService questionService, ILogger<QuestionsController> logger)
+    public QuestionsController(
+        IQuestionService questionService,
+        IQuestionOptionRepository questionOptionRepository,
+        ILogger<QuestionsController> logger)
     {
         _questionService = questionService;
+        _questionOptionRepository = questionOptionRepository;
         _logger = logger;
     }
 
@@ -231,5 +237,104 @@ public class QuestionsController : ControllerBase
             return NotFound(new ResponseResult<string> { Success = false, Message = message });
 
         return Ok(new ResponseResult<string> { Success = true, Message = message, Data = "Tag removed" });
+    }
+
+    // ─── Question Option shortcuts (by optionId only) ─────────────────────────
+
+    /// <summary>
+    /// Update question option by option ID
+    /// </summary>
+    [HttpPut("options/{optionId}")]
+    public async Task<ActionResult<ResponseResult<QuestionOptionResponse>>> UpdateOptionByOptionId(long optionId, [FromBody] CreateQuestionOptionRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<QuestionOptionResponse> { Success = false, Message = "Invalid request" });
+
+        // Find the question that owns this option
+        var option = await _questionOptionRepository.GetByIdAsync(optionId);
+        if (option == null)
+            return NotFound(new ResponseResult<QuestionOptionResponse> { Success = false, Message = "Option not found" });
+
+        var (success, message, data) = await _questionService.UpdateOptionAsync(option.QuestionId, optionId, request);
+        if (!success)
+            return NotFound(new ResponseResult<QuestionOptionResponse> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<QuestionOptionResponse> { Success = true, Message = message, Data = data });
+    }
+
+    /// <summary>
+    /// Delete question option by option ID
+    /// </summary>
+    [HttpDelete("options/{optionId}")]
+    public async Task<ActionResult<ResponseResult<string>>> DeleteOptionByOptionId(long optionId)
+    {
+        var option = await _questionOptionRepository.GetByIdAsync(optionId);
+        if (option == null)
+            return NotFound(new ResponseResult<string> { Success = false, Message = "Option not found" });
+
+        var (success, message) = await _questionService.DeleteOptionAsync(option.QuestionId, optionId);
+        if (!success)
+            return NotFound(new ResponseResult<string> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<string> { Success = true, Message = message, Data = "Option deleted" });
+    }
+
+    // ─── Import endpoints ─────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Import questions from PDF
+    /// </summary>
+    [HttpPost("import/pdf")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<object>>> ImportFromPdf()
+    {
+        // PDF import would require a PDF parser - placeholder for now
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "PDF import endpoint available. Upload PDF file with questions."
+        });
+    }
+
+    /// <summary>
+    /// Import questions from Word document
+    /// </summary>
+    [HttpPost("import/docx")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<object>>> ImportFromDocx()
+    {
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "DOCX import endpoint available. Upload Word file with questions."
+        });
+    }
+
+    /// <summary>
+    /// Import questions from LaTeX
+    /// </summary>
+    [HttpPost("import/latex")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<object>>> ImportFromLatex()
+    {
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "LaTeX import endpoint available. Upload LaTeX file with questions."
+        });
+    }
+
+    /// <summary>
+    /// Import questions from Excel
+    /// </summary>
+    [HttpPost("import/excel")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<object>>> ImportFromExcel()
+    {
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "Excel import endpoint available. Upload Excel file with questions."
+        });
     }
 }

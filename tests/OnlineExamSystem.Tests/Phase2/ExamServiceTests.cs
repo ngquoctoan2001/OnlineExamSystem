@@ -15,6 +15,7 @@ public class ExamServiceTests
     private readonly Mock<ITeacherRepository> _teacherRepoMock;
     private readonly Mock<ISubjectRepository> _subjectRepoMock;
     private readonly Mock<IExamSettingsRepository> _settingsRepoMock;
+    private readonly Mock<IExamAttemptRepository> _attemptRepoMock;
     private readonly Mock<ILogger<ExamService>> _loggerMock;
     private readonly Mock<IActivityLogService> _activityLogMock;
     private readonly ExamService _service;
@@ -25,6 +26,7 @@ public class ExamServiceTests
         _teacherRepoMock = new Mock<ITeacherRepository>();
         _subjectRepoMock = new Mock<ISubjectRepository>();
         _settingsRepoMock = new Mock<IExamSettingsRepository>();
+        _attemptRepoMock = new Mock<IExamAttemptRepository>();
         _loggerMock = new Mock<ILogger<ExamService>>();
         _activityLogMock = new Mock<IActivityLogService>();
 
@@ -33,6 +35,7 @@ public class ExamServiceTests
             _teacherRepoMock.Object,
             _subjectRepoMock.Object,
             _settingsRepoMock.Object,
+            _attemptRepoMock.Object,
             _activityLogMock.Object,
             _loggerMock.Object);
     }
@@ -227,6 +230,7 @@ public class ExamServiceTests
     public async Task DeleteExamAsync_DraftExam_DeletesSuccessfully()
     {
         _examRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(BuildExam(1, status: "DRAFT"));
+        _attemptRepoMock.Setup(r => r.GetExamAttemptsAsync(1)).ReturnsAsync(new List<ExamAttempt>());
         _examRepoMock.Setup(r => r.DeleteAsync(1)).ReturnsAsync(true);
 
         var (success, message) = await _service.DeleteExamAsync(1);
@@ -243,7 +247,7 @@ public class ExamServiceTests
         var (success, message) = await _service.DeleteExamAsync(1);
 
         success.Should().BeFalse();
-        message.Should().Be("Cannot delete exam that is ACTIVE or CLOSED");
+        message.Should().Be("Không thể xóa kỳ thi đang hoạt động hoặc đã đóng");
     }
 
     [Fact]
@@ -254,7 +258,7 @@ public class ExamServiceTests
         var (success, message) = await _service.DeleteExamAsync(1);
 
         success.Should().BeFalse();
-        message.Should().Be("Cannot delete exam that is ACTIVE or CLOSED");
+        message.Should().Be("Không thể xóa kỳ thi đang hoạt động hoặc đã đóng");
     }
 
     // ===== ActivateExamAsync =====

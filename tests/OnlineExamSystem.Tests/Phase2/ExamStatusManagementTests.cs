@@ -17,6 +17,7 @@ namespace OnlineExamSystem.Tests.Phase2;
 public class ExamStatusManagementTests
 {
     private readonly Mock<IExamRepository> _examRepoMock;
+    private readonly Mock<IExamAttemptRepository> _attemptRepoMock;
     private readonly ExamService _service;
 
     public ExamStatusManagementTests()
@@ -25,6 +26,7 @@ public class ExamStatusManagementTests
         var teacherRepo = new Mock<ITeacherRepository>();
         var subjectRepo = new Mock<ISubjectRepository>();
         var settingsRepo = new Mock<IExamSettingsRepository>();
+        _attemptRepoMock = new Mock<IExamAttemptRepository>();
         var logger = new Mock<ILogger<ExamService>>();
         var activityLog = new Mock<IActivityLogService>();
 
@@ -33,6 +35,7 @@ public class ExamStatusManagementTests
             teacherRepo.Object,
             subjectRepo.Object,
             settingsRepo.Object,
+            _attemptRepoMock.Object,
             activityLog.Object,
             logger.Object);
     }
@@ -168,7 +171,7 @@ public class ExamStatusManagementTests
         var (success, message) = await _service.DeleteExamAsync(1);
 
         success.Should().BeFalse();
-        message.Should().Be("Cannot delete exam that is ACTIVE or CLOSED");
+        message.Should().Be("Không thể xóa kỳ thi đang hoạt động hoặc đã đóng");
         _examRepoMock.Verify(r => r.DeleteAsync(It.IsAny<long>()), Times.Never);
     }
 
@@ -176,6 +179,7 @@ public class ExamStatusManagementTests
     public async Task DeleteExamAsync_DraftExam_AllowsDeletion()
     {
         _examRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(BuildExam("DRAFT"));
+        _attemptRepoMock.Setup(r => r.GetExamAttemptsAsync(1)).ReturnsAsync(new List<ExamAttempt>());
         _examRepoMock.Setup(r => r.DeleteAsync(1)).ReturnsAsync(true);
 
         var (success, _) = await _service.DeleteExamAsync(1);

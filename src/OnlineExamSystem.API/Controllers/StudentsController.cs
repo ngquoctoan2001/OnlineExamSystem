@@ -1,5 +1,6 @@
 namespace OnlineExamSystem.API.Controllers;
 
+using System.Security.Claims;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OfficeOpenXml;
@@ -18,11 +19,19 @@ using OnlineExamSystem.Infrastructure.Services;
 public class StudentsController : ControllerBase
 {
     private readonly IStudentService _studentService;
+    private readonly IStatisticsService _statisticsService;
+    private readonly IExamAttemptService _examAttemptService;
     private readonly ILogger<StudentsController> _logger;
 
-    public StudentsController(IStudentService studentService, ILogger<StudentsController> logger)
+    public StudentsController(
+        IStudentService studentService,
+        IStatisticsService statisticsService,
+        IExamAttemptService examAttemptService,
+        ILogger<StudentsController> logger)
     {
         _studentService = studentService;
+        _statisticsService = statisticsService;
+        _examAttemptService = examAttemptService;
         _logger = logger;
     }
 
@@ -43,6 +52,29 @@ public class StudentsController : ControllerBase
             Message = message,
             Data = data
         });
+    }
+
+    /// <summary>
+    /// Get current student profile (by authenticated user)
+    /// </summary>
+    [HttpGet("me")]
+    [Authorize(Roles = "STUDENT")]
+    public async Task<ActionResult<ResponseResult<StudentResponse>>> GetMe()
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+                       ?? User.FindFirst("sub")?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !long.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new ResponseResult<object> { Success = false, Message = "Invalid token" });
+        }
+
+        var (success, message, data) = await _studentService.GetStudentByUserIdAsync(userId);
+        if (!success)
+        {
+            return NotFound(new ResponseResult<object> { Success = false, Message = message });
+        }
+
+        return Ok(new ResponseResult<StudentResponse> { Success = success, Message = message, Data = data });
     }
 
     /// <summary>
@@ -263,5 +295,35 @@ public class StudentsController : ControllerBase
         ws.Cells.AutoFitColumns();
         var bytes = package.GetAsByteArray();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "students.xlsx");
+    }
+
+    /// <summary>
+    /// Get student scores
+    /// </summary>
+    [HttpGet("{id}/scores")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
+    public async Task<ActionResult<ResponseResult<StudentPerformanceResponse>>> GetStudentScores(long id)
+    {
+        _logger.LogInformation("Getting scores for student: {StudentId}", id);
+
+        var (success, message, data) = await _statisticsService.GetStudentPerformanceAsync(id);
+        if (!success)
+            return NotFound(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<StudentPerformanceResponse> { Success = true, Message = message, Data = data });
+    }
+
+    /// <summary>
+    /// Get student exams
+    /// </summary>
+    [HttpGet("{id}/exams")]
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
+    public async Task<ActionResult<ResponseResult<List<ExamAttemptResponse>>>> GetStudentExams(long id)
+    {
+        _logger.LogInformation("Getting exams for student: {StudentId}", id);
+
+        var (success, message, data) = await _examAttemptService.GetStudentAttemptsAsync(id);
+
+        return Ok(new ResponseResult<List<ExamAttemptResponse>> { Success = success, Message = message, Data = data });
     }
 }

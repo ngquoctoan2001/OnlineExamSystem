@@ -264,4 +264,42 @@ public class TeachersController : ControllerBase
         var bytes = package.GetAsByteArray();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "teachers.xlsx");
     }
+
+    /// <summary>
+    /// Get subjects taught by a teacher
+    /// </summary>
+    [HttpGet("{id}/subjects")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<List<TeacherSubjectResponse>>>> GetTeacherSubjects(long id)
+    {
+        _logger.LogInformation("Getting subjects for teacher: {TeacherId}", id);
+
+        var (success, message, data) = await _teacherService.GetTeacherClassesAsync(id);
+
+        if (!success)
+        {
+            return NotFound(new ResponseResult<object>
+            {
+                Success = false,
+                Message = message
+            });
+        }
+
+        var subjects = data?
+            .Where(a => a.SubjectId > 0)
+            .GroupBy(a => a.SubjectId)
+            .Select(g => new TeacherSubjectResponse
+            {
+                SubjectId = g.Key,
+                SubjectName = g.First().SubjectName
+            })
+            .ToList() ?? new();
+
+        return Ok(new ResponseResult<List<TeacherSubjectResponse>>
+        {
+            Success = true,
+            Message = "Success",
+            Data = subjects
+        });
+    }
 }

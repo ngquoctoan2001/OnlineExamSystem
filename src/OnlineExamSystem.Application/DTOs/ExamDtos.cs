@@ -22,6 +22,8 @@ public class CreateExamRequest
 
     [MaxLength(2000)]
     public string Description { get; set; } = string.Empty;
+
+    public long? SubjectExamTypeId { get; set; }
 }
 
 /// <summary>
@@ -35,6 +37,7 @@ public class UpdateExamRequest
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public string Description { get; set; } = string.Empty;
+    public long? SubjectExamTypeId { get; set; }
 }
 
 /// <summary>
@@ -53,6 +56,9 @@ public class ExamResponse
     public string Description { get; set; } = string.Empty;
     public string Status { get; set; } = "DRAFT";
     public DateTime CreatedAt { get; set; }
+    public long? SubjectExamTypeId { get; set; }
+    public string? SubjectExamTypeName { get; set; }
+    public decimal? SubjectExamTypeCoefficient { get; set; }
 }
 
 /// <summary>
@@ -109,4 +115,43 @@ public class ActivateExamResponse
     public string Status { get; set; } = string.Empty;
     public DateTime ActivatedAt { get; set; }
     public string Message { get; set; } = string.Empty;
+}
+
+public class ExamPreviewResponse
+{
+    public long Id { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string SubjectName { get; set; } = string.Empty;
+    public int DurationMinutes { get; set; }
+    public DateTime StartTime { get; set; }
+    public DateTime EndTime { get; set; }
+    public string Description { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
+    public int TotalQuestions { get; set; }
+    public List<ExamPreviewQuestionResponse> Questions { get; set; } = new();
+}
+
+public class ExamPreviewQuestionResponse
+{
+    public long QuestionId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string QuestionType { get; set; } = string.Empty;
+    public int OrderIndex { get; set; }
+    public decimal MaxScore { get; set; }
+    public List<ExamPreviewOptionResponse> Options { get; set; } = new();
+}
+
+public class ExamPreviewOptionResponse
+{
+    public long Id { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public int OrderIndex { get; set; }
+}
+
+public class DuplicateExamResponse
+{
+    public long OriginalExamId { get; set; }
+    public long NewExamId { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string Status { get; set; } = "DRAFT";
 }

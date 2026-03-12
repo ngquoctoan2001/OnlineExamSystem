@@ -272,6 +272,59 @@ public class GradingService : IGradingService
         }
     }
 
+    public async Task<(bool Success, string Message, List<GradingResultResponse>? Data)> BatchGradeAsync(long attemptId, BatchGradeRequest request, long gradedBy)
+    {
+        try
+        {
+            var attempt = await _attemptRepo.GetByIdAsync(attemptId);
+            if (attempt == null)
+                return (false, "Exam attempt not found", null);
+
+            var results = new List<GradingResultResponse>();
+            foreach (var item in request.Grades)
+            {
+                var examQuestion = await _examQuestionRepo.GetExamQuestionAsync(attempt.ExamId, item.QuestionId);
+                if (examQuestion == null) continue;
+
+                if (item.Score < 0 || item.Score > examQuestion.MaxScore)
+                    return (false, $"Score for question {item.QuestionId} must be between 0 and {examQuestion.MaxScore}", null);
+
+                var existing = await _gradingRepo.GetByAttemptAndQuestionAsync(attemptId, item.QuestionId);
+                GradingResult result;
+                if (existing == null)
+                {
+                    result = await _gradingRepo.CreateAsync(new GradingResult
+                    {
+                        ExamAttemptId = attemptId,
+                        QuestionId = item.QuestionId,
+                        Score = item.Score,
+                        Comment = item.Comment,
+                        Annotations = item.Annotations,
+                        GradedBy = gradedBy,
+                        GradedAt = DateTime.UtcNow
+                    });
+                }
+                else
+                {
+                    existing.Score = item.Score;
+                    existing.Comment = item.Comment;
+                    existing.Annotations = item.Annotations;
+                    existing.GradedBy = gradedBy;
+                    existing.GradedAt = DateTime.UtcNow;
+                    result = await _gradingRepo.UpdateAsync(existing);
+                }
+                results.Add(MapToGradingResponse(result, examQuestion, false));
+            }
+
+            return (true, "Batch grading complete", results);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error batch grading attempt {AttemptId}", attemptId);
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
     public async Task<(bool Success, string Message)> MarkAsGradedAsync(long attemptId)
     {
         try
@@ -337,10 +390,23 @@ public class GradingService : IGradingService
             if (attempt == null)
                 return (false, "Exam attempt not found", null);
 
-            if (!attempt.IsResultPublished)
-                return (false, "Result has not been published yet", null);
+            var result = await GetAttemptGradingViewAsync(attemptId);
+            if (!result.Success) return result;
 
-            return await GetAttemptGradingViewAsync(attemptId);
+            // If results are not published, hide grading details
+            if (!attempt.IsResultPublished && result.Data != null)
+            {
+                foreach (var q in result.Data.Questions)
+                {
+                    q.GradingResult = null;
+                    // Hide correct answers for MCQ
+                    foreach (var opt in q.Options)
+                        opt.IsCorrect = false;
+                }
+                result.Data.TotalScore = null;
+            }
+
+            return result;
         }
         catch (Exception ex)
         {

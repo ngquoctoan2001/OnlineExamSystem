@@ -49,6 +49,28 @@ public class StudentService : IStudentService
         }
     }
 
+    public async Task<(bool Success, string Message, StudentResponse? Data)> GetStudentByUserIdAsync(long userId)
+    {
+        try
+        {
+            var student = await _studentRepository.GetByUserIdAsync(userId);
+            
+            if (student == null)
+            {
+                _logger.LogWarning("Student not found for user: {UserId}", userId);
+                return (false, "Student not found", null);
+            }
+
+            var response = MapToStudentResponse(student);
+            return (true, "Success", response);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting student by user ID {UserId}", userId);
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
     public async Task<(bool Success, string Message, StudentListResponse? Data)> GetAllStudentsAsync(int page = 1, int pageSize = 20)
     {
         try
@@ -153,6 +175,13 @@ public class StudentService : IStudentService
             };
 
             var createdUser = await _userRepository.CreateAsync(user);
+
+            // Assign STUDENT role
+            var studentRole = await _userRepository.GetRoleByNameAsync("STUDENT");
+            if (studentRole != null)
+            {
+                await _userRepository.AssignRoleToUserAsync(createdUser.Id, studentRole.Id);
+            }
 
             // Create student record
             var student = new Student

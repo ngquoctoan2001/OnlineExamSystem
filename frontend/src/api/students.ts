@@ -1,11 +1,19 @@
 import apiClient from './client'
-import type { ApiResponse, StudentResponse, CreateStudentRequest } from '../types/api'
-
-interface StudentListResponse { students: StudentResponse[]; totalCount: number; page: number; pageSize: number }
+import type {
+  ApiResponse,
+  StudentResponse,
+  CreateStudentRequest,
+  StudentListResponse,
+  ExamAttemptResponse,
+  StudentPerformanceResponse,
+} from '../types/api'
 
 export const studentsApi = {
   getAll: (page = 1, pageSize = 20) =>
     apiClient.get<ApiResponse<StudentListResponse>>(`/students?page=${page}&pageSize=${pageSize}`),
+
+  getMe: () =>
+    apiClient.get<ApiResponse<StudentResponse>>('/students/me'),
 
   getById: (id: number) =>
     apiClient.get<ApiResponse<StudentResponse>>(`/students/${id}`),
@@ -21,6 +29,15 @@ export const studentsApi = {
 
   delete: (id: number) =>
     apiClient.delete<ApiResponse<object>>(`/students/${id}`),
+
+  getStudentClasses: (id: number) =>
+    apiClient.get(`/students/${id}/classes`),
+
+  getStudentScores: (id: number) =>
+    apiClient.get<ApiResponse<StudentPerformanceResponse>>(`/students/${id}/scores`),
+
+  getStudentExams: (id: number) =>
+    apiClient.get<ApiResponse<ExamAttemptResponse[]>>(`/students/${id}/exams`),
 
   importFile: (file: File) => {
     const formData = new FormData()

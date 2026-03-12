@@ -54,3 +54,35 @@ public class ViolationResponse
     public string? Description { get; set; }
     public DateTime OccurredAt { get; set; }
 }
+
+public class SaveCanvasRequest
+{
+    public long QuestionId { get; set; }
+    public string CanvasData { get; set; } = string.Empty;
+}
+
+public class FlagQuestionRequest
+{
+    public long QuestionId { get; set; }
+}
+
+public class AutosaveRequest
+{
+    public long AttemptId { get; set; }
+    public List<AutosaveAnswerItem> Answers { get; set; } = new();
+}
+
+public class AutosaveAnswerItem
+{
+    public long QuestionId { get; set; }
+    public List<long>? SelectedOptionIds { get; set; }
+    public string? TextContent { get; set; }
+    public string? EssayContent { get; set; }
+}
+
+public class AutosaveResponse
+{
+    public long AttemptId { get; set; }
+    public int SavedCount { get; set; }
+    public DateTime SavedAt { get; set; }
+}

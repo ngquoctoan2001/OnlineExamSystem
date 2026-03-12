@@ -128,3 +128,9 @@ public class TeacherClassAssignmentResponse
     /// <summary>Assignment date</summary>
     public DateTime AssignedAt { get; set; }
 }
+
+public class TeacherSubjectResponse
+{
+    public long SubjectId { get; set; }
+    public string SubjectName { get; set; } = string.Empty;
+}

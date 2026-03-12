@@ -87,6 +87,7 @@ public class School
     public string Name { get; set; } = string.Empty;
     public string Address { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;
+    public DateTime CreatedAt { get; set; }
 
     public virtual ICollection<Class> Classes { get; set; } = new List<Class>();
 }
@@ -99,6 +100,20 @@ public class Subject
     public string Description { get; set; } = string.Empty;
 
     public virtual ICollection<Question> Questions { get; set; } = new List<Question>();
+    public virtual ICollection<Exam> Exams { get; set; } = new List<Exam>();
+    public virtual ICollection<SubjectExamType> ExamTypes { get; set; } = new List<SubjectExamType>();
+}
+
+public class SubjectExamType
+{
+    public long Id { get; set; }
+    public long SubjectId { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public decimal Coefficient { get; set; } = 1;
+    public int RequiredCount { get; set; } = 1;
+    public int SortOrder { get; set; }
+
+    public virtual Subject Subject { get; set; } = null!;
     public virtual ICollection<Exam> Exams { get; set; } = new List<Exam>();
 }
 
@@ -175,6 +190,7 @@ public class Exam
     public long Id { get; set; }
     public long SubjectId { get; set; }
     public long CreatedBy { get; set; }
+    public long? SubjectExamTypeId { get; set; }
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public int DurationMinutes { get; set; }
@@ -185,6 +201,7 @@ public class Exam
     public DateTime CreatedAt { get; set; }
 
     public virtual Subject Subject { get; set; } = null!;
+    public virtual SubjectExamType? SubjectExamType { get; set; }
     public virtual ICollection<ExamClass> ExamClasses { get; set; } = new List<ExamClass>();
     public virtual ICollection<ExamQuestion> ExamQuestions { get; set; } = new List<ExamQuestion>();
     public virtual ICollection<ExamAttempt> ExamAttempts { get; set; } = new List<ExamAttempt>();

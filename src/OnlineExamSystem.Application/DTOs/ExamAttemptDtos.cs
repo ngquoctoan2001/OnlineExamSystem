@@ -13,10 +13,13 @@ public class ExamAttemptResponse
     public string? ExamTitle { get; set; }
     public long StudentId { get; set; }
     public string? StudentName { get; set; }
+    public string? StudentCode { get; set; }
     public string Status { get; set; } = null!;
     public DateTime StartTime { get; set; }
     public DateTime? EndTime { get; set; }
     public decimal? Score { get; set; }
+    public decimal? TotalPoints { get; set; }
+    public bool? IsPassed { get; set; }
     public int TotalQuestions { get; set; }
     public int AnsweredQuestions { get; set; }
 }

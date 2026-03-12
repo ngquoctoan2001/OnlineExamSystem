@@ -18,6 +18,8 @@ public class ExamRepository : IExamRepository
         return await _context.Exams
             .AsNoTracking()
             .Include(e => e.Subject)
+            .Include(e => e.ExamQuestions)
+            .Include(e => e.SubjectExamType)
             .FirstOrDefaultAsync(e => e.Id == id);
     }
 
@@ -26,6 +28,7 @@ public class ExamRepository : IExamRepository
         var query = _context.Exams
             .AsNoTracking()
             .Include(e => e.Subject)
+            .Include(e => e.SubjectExamType)
             .OrderByDescending(e => e.CreatedAt);
 
         var totalCount = await query.CountAsync();
@@ -42,6 +45,7 @@ public class ExamRepository : IExamRepository
         return await _context.Exams
             .AsNoTracking()
             .Include(e => e.Subject)
+            .Include(e => e.SubjectExamType)
             .Where(e => e.Title.Contains(searchTerm) || e.Description.Contains(searchTerm))
             .OrderByDescending(e => e.CreatedAt)
             .ToListAsync();
@@ -52,6 +56,7 @@ public class ExamRepository : IExamRepository
         return await _context.Exams
             .AsNoTracking()
             .Include(e => e.Subject)
+            .Include(e => e.SubjectExamType)
             .Where(e => e.CreatedBy == teacherId)
             .OrderByDescending(e => e.CreatedAt)
             .ToListAsync();
@@ -62,6 +67,7 @@ public class ExamRepository : IExamRepository
         return await _context.Exams
             .AsNoTracking()
             .Include(e => e.Subject)
+            .Include(e => e.SubjectExamType)
             .Where(e => e.SubjectId == subjectId)
             .OrderByDescending(e => e.CreatedAt)
             .ToListAsync();

@@ -1,11 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { authApi } from '../api/auth'
+import { studentsApi } from '../api/students'
 
 interface User {
   id: number
   username: string
   fullName: string
   role: string
+  studentId?: number
 }
 
 interface AuthContextType {
@@ -29,19 +31,53 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null)
   }, [])
 
-  // Restore session on mount
+  // Fetch studentId for STUDENT role
+  const fetchStudentId = useCallback(async (u: User) => {
+    if (u.role?.toUpperCase() !== 'STUDENT' || u.studentId) return u
+    try {
+      const res = await studentsApi.getMe()
+      if (res.data?.data?.id) {
+        const updated = { ...u, studentId: res.data.data.id }
+        localStorage.setItem('user', JSON.stringify(updated))
+        return updated
+      }
+    } catch { /* ignore */ }
+    return u
+  }, [])
+
+  // Restore session on mount – also re-decode the JWT so that
+  // Vietnamese names that were previously garbled by plain atob() are fixed.
   useEffect(() => {
     const stored = localStorage.getItem('user')
     const token = localStorage.getItem('accessToken')
     if (stored && token) {
       try {
-        setUser(JSON.parse(stored))
+        let parsed = JSON.parse(stored)
+        // Re-decode fullName from token to fix any prior UTF-8 garbling
+        try {
+          const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(token.split('.')[1]), c => c.charCodeAt(0))))
+          const freshName = payload.fullname || payload.name || payload.fullName
+          if (freshName && freshName !== parsed.fullName) {
+            parsed = { ...parsed, fullName: freshName }
+            localStorage.setItem('user', JSON.stringify(parsed))
+          }
+        } catch { /* ignore decode error */ }
+        setUser(parsed)
+        // Refresh studentId if needed
+        if (parsed.role?.toUpperCase() === 'STUDENT' && !parsed.studentId) {
+          fetchStudentId(parsed).then(u => setUser(u))
+        }
+        // Verify session is still valid on the server
+        authApi.verifySession().catch(() => {
+          // Session invalid – log out
+          logout()
+        })
       } catch {
         logout()
       }
     }
     setLoading(false)
-  }, [logout])
+  }, [logout, fetchStudentId])
 
   const login = async (username: string, password: string) => {
     try {
@@ -53,8 +89,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         // Decode basic info from token payload
         try {
-          const payload = JSON.parse(atob(accessToken.split('.')[1]))
-          const u: User = {
+          const payload = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(accessToken.split('.')[1]), c => c.charCodeAt(0))))
+          let u: User = {
             id: Number(payload.sub || payload.userId || payload.nameid || 0),
             username: payload.unique_name || payload.username || username,
             fullName: payload.fullname || payload.name || payload.fullName || username,
@@ -62,6 +98,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
           localStorage.setItem('user', JSON.stringify(u))
           setUser(u)
+          // Fetch studentId in background for student users
+          if (u.role?.toUpperCase() === 'STUDENT') {
+            fetchStudentId(u).then(updated => setUser(updated))
+          }
         } catch {
           // If decode fails, use minimal info
           const u: User = { id: 0, username, fullName: username, role: 'USER' }

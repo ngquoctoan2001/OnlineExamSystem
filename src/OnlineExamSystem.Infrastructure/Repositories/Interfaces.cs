@@ -270,3 +270,12 @@ public interface IActivityLogRepository
     Task<ActivityLog> CreateAsync(ActivityLog log);
     Task<(List<ActivityLog> Logs, int TotalCount)> GetAllAsync(int page, int pageSize, string? action = null, long? userId = null, DateTime? from = null, DateTime? to = null);
 }
+
+public interface ISubjectExamTypeRepository
+{
+    Task<SubjectExamType?> GetByIdAsync(long id);
+    Task<List<SubjectExamType>> GetBySubjectIdAsync(long subjectId);
+    Task<SubjectExamType> CreateAsync(SubjectExamType entity);
+    Task<SubjectExamType> UpdateAsync(SubjectExamType entity);
+    Task<bool> DeleteAsync(long id);
+}

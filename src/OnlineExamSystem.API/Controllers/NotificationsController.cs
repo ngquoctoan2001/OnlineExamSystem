@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
+using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
 
 namespace OnlineExamSystem.API.Controllers;
@@ -14,10 +15,12 @@ namespace OnlineExamSystem.API.Controllers;
 public class NotificationsController : ControllerBase
 {
     private readonly INotificationService _notificationService;
+    private readonly IClassRepository _classRepository;
 
-    public NotificationsController(INotificationService notificationService)
+    public NotificationsController(INotificationService notificationService, IClassRepository classRepository)
     {
         _notificationService = notificationService;
+        _classRepository = classRepository;
     }
 
     [HttpGet]
@@ -72,5 +75,40 @@ public class NotificationsController : ControllerBase
             return NotFound(new ResponseResult<object> { Success = false, Message = message });
 
         return Ok(new ResponseResult<object> { Success = true, Message = message });
+    }
+
+    /// <summary>
+    /// Send notification to all students in a class
+    /// </summary>
+    [HttpPost("send-class")]
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    public async Task<ActionResult<ResponseResult<object>>> SendToClass([FromBody] SendNotificationToClassRequest request)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Invalid request" });
+
+        var students = await _classRepository.GetClassStudentsAsync(request.ClassId);
+        if (students == null || students.Count == 0)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "No students found in class" });
+
+        var sentCount = 0;
+        foreach (var cs in students)
+        {
+            var student = cs.Student;
+            if (student?.UserId > 0)
+            {
+                await _notificationService.CreateAsync(
+                    student.UserId, request.Type, request.Title, request.Message,
+                    request.RelatedEntityId, request.RelatedEntityType);
+                sentCount++;
+            }
+        }
+
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = $"Notification sent to {sentCount} students",
+            Data = new { ClassId = request.ClassId, SentCount = sentCount }
+        });
     }
 }

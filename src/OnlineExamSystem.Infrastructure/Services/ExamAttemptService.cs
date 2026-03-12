@@ -148,6 +148,28 @@ public class ExamAttemptService : IExamAttemptService
             foreach (var attempt in attempts)
             {
                 var exam = await _examRepository.GetByIdAsync(attempt.ExamId);
+
+                // Auto-expire stale IN_PROGRESS attempts whose time has run out
+                if (attempt.Status == "IN_PROGRESS" && exam != null)
+                {
+                    var elapsed = DateTime.UtcNow - attempt.StartTime;
+                    var examEnded = exam.EndTime != default && DateTime.UtcNow > exam.EndTime;
+                    if (elapsed.TotalMinutes > exam.DurationMinutes || examEnded)
+                    {
+                        attempt.Status = "SUBMITTED";
+                        attempt.EndTime = attempt.StartTime.AddMinutes(exam.DurationMinutes);
+                        await _examAttemptRepository.UpdateAsync(attempt);
+                        // Auto-grade what we can
+                        var autoScore = await AutoGradeAttemptAsync(attempt);
+                        if (autoScore.HasValue)
+                        {
+                            attempt.Score = autoScore;
+                            await _examAttemptRepository.UpdateAsync(attempt);
+                        }
+                        _logger.LogInformation("Auto-expired stale attempt {AttemptId} for exam {ExamId}", attempt.Id, attempt.ExamId);
+                    }
+                }
+
                 responses.Add(MapToResponse(attempt, exam, student));
             }
 
@@ -368,6 +390,9 @@ public class ExamAttemptService : IExamAttemptService
 
     private ExamAttemptResponse MapToResponse(ExamAttempt attempt, Exam? exam, Student? student)
     {
+        // Calculate total points from exam questions
+        decimal? totalPoints = exam?.ExamQuestions?.Sum(eq => eq.MaxScore);
+
         return new ExamAttemptResponse
         {
             Id = attempt.Id,
@@ -375,10 +400,15 @@ public class ExamAttemptService : IExamAttemptService
             ExamTitle = exam?.Title,
             StudentId = student?.Id ?? 0,
             StudentName = student?.User?.FullName ?? string.Empty,
+            StudentCode = student?.StudentCode ?? string.Empty,
             Status = attempt.Status,
             StartTime = attempt.StartTime,
             EndTime = attempt.EndTime,
             Score = attempt.Score,
+            TotalPoints = totalPoints,
+            IsPassed = attempt.Score.HasValue && totalPoints.HasValue && totalPoints.Value > 0
+                ? attempt.Score.Value >= (totalPoints.Value * 0.5m)
+                : null,
             TotalQuestions = attempt.Answers?.Count ?? 0,
             AnsweredQuestions = attempt.Answers?.Where(a => !string.IsNullOrEmpty(a.TextContent) || !string.IsNullOrEmpty(a.EssayContent) || !string.IsNullOrEmpty(a.CanvasImage)).Count() ?? 0
         };

@@ -5,6 +5,9 @@ namespace OnlineExamSystem.Application.DTOs;
 /// </summary>
 public class CreateClassRequest
 {
+    /// <summary>School ID (0 = auto-select first school)</summary>
+    public long SchoolId { get; set; } = 0;
+
     /// <summary>Class code (unique)</summary>
     public string Code { get; set; } = string.Empty;
 
@@ -115,4 +118,15 @@ public class ClassStudentResponse
 
     /// <summary>Enrollment date</summary>
     public DateTime EnrolledAt { get; set; }
+}
+
+public class AssignTeacherToClassRequest
+{
+    public long TeacherId { get; set; }
+    public long SubjectId { get; set; }
+}
+
+public class AssignStudentsToClassRequest
+{
+    public List<long> StudentIds { get; set; } = new();
 }

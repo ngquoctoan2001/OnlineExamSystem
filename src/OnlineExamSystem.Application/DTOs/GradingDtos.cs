@@ -23,6 +23,19 @@ public class ManualGradeRequest
     public string? Annotations { get; set; }
 }
 
+public class BatchGradeRequest
+{
+    public List<BatchGradeItem> Grades { get; set; } = new();
+}
+
+public class BatchGradeItem
+{
+    public long QuestionId { get; set; }
+    public decimal Score { get; set; }
+    public string? Comment { get; set; }
+    public string? Annotations { get; set; }
+}
+
 public class AttemptGradingViewResponse
 {
     public long AttemptId { get; set; }
@@ -71,4 +84,18 @@ public class PublishResultResponse
     public decimal? TotalScore { get; set; }
     public string Status { get; set; } = string.Empty;
     public bool Published { get; set; }
+}
+
+public class GradeQuestionRequest
+{
+    public long QuestionId { get; set; }
+    public decimal Score { get; set; }
+    public string? Comment { get; set; }
+}
+
+public class AddAnnotationRequest
+{
+    public long QuestionId { get; set; }
+    public string Content { get; set; } = string.Empty;
+    public string? Type { get; set; }
 }

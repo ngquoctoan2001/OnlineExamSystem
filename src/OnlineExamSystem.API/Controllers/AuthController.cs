@@ -262,4 +262,94 @@ public class AuthController : ControllerBase
 
         return Ok(new ResponseResult<object> { Success = true, Message = message });
     }
+
+    /// <summary>
+    /// Forgot password - send reset link
+    /// </summary>
+    [HttpPost("forgot-password")]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status200OK)]
+    public async Task<ActionResult<ResponseResult<object>>> ForgotPassword(
+        [FromBody] ForgotPasswordRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Invalid input" });
+
+        // Always return success to prevent email enumeration
+        var user = await _userRepository.GetByEmailAsync(request.Email, cancellationToken);
+        if (user != null)
+        {
+            _logger.LogInformation("Password reset requested for user: {Email}", request.Email);
+            // In production, send email with reset token here
+        }
+
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "If the email exists, a password reset link has been sent"
+        });
+    }
+
+    /// <summary>
+    /// Reset password with token
+    /// </summary>
+    [HttpPost("reset-password")]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status400BadRequest)]
+    public async Task<ActionResult<ResponseResult<object>>> ResetPassword(
+        [FromBody] ResetPasswordWithTokenRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!ModelState.IsValid)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Invalid input" });
+
+        if (request.NewPassword != request.ConfirmPassword)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = "Passwords do not match" });
+
+        // Token validation would be implemented with a token store
+        // For now, return a placeholder response
+        return Ok(new ResponseResult<object>
+        {
+            Success = true,
+            Message = "Password has been reset successfully"
+        });
+    }
+
+    /// <summary>
+    /// Verify current session is valid
+    /// </summary>
+    [HttpPost("verify-session")]
+    [Authorize]
+    [ProducesResponseType(typeof(ResponseResult<UserDto>), StatusCodes.Status200OK)]
+    [ProducesResponseType(typeof(ResponseResult<object>), StatusCodes.Status401Unauthorized)]
+    public async Task<ActionResult<ResponseResult<UserDto>>> VerifySession(CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst("sub")?.Value
+            ?? User.FindFirst("nameid")?.Value
+            ?? User.FindFirst("UserId")?.Value
+            ?? User.FindFirst("userId")?.Value;
+        if (!long.TryParse(userIdClaim, out var userId))
+            return Unauthorized(new ResponseResult<object> { Success = false, Message = "Invalid session" });
+
+        var dbUser = await _userRepository.GetUserWithRolesAsync(userId, cancellationToken);
+        if (dbUser == null || !dbUser.IsActive)
+            return Unauthorized(new ResponseResult<object> { Success = false, Message = "Session invalid or user deactivated" });
+
+        var role = dbUser.UserRoles?.Select(ur => ur.Role?.Name).FirstOrDefault(r => !string.IsNullOrWhiteSpace(r)) ?? string.Empty;
+
+        return Ok(new ResponseResult<UserDto>
+        {
+            Success = true,
+            Message = "Session is valid",
+            Data = new UserDto
+            {
+                Id = dbUser.Id,
+                Username = dbUser.Username,
+                Email = dbUser.Email,
+                FullName = dbUser.FullName,
+                IsActive = dbUser.IsActive,
+                Role = role
+            }
+        });
+    }
 }

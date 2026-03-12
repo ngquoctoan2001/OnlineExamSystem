@@ -10,6 +10,9 @@ export const subjectsApi = {
   getById: (id: number) =>
     apiClient.get<ApiResponse<SubjectResponse>>(`/subjects/${id}`),
 
+  search: (term: string) =>
+    apiClient.get<ApiResponse<SubjectResponse[]>>(`/subjects/search/${encodeURIComponent(term)}`),
+
   create: (data: CreateSubjectRequest) =>
     apiClient.post<ApiResponse<SubjectResponse>>('/subjects', data),
 

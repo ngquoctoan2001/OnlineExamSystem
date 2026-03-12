@@ -1,9 +1,13 @@
 namespace OnlineExamSystem.API.Controllers;
 
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
+using OnlineExamSystem.Infrastructure.Data;
+using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
 
 /// <summary>
@@ -18,15 +22,21 @@ public class ClassesController : ControllerBase
 {
     private readonly IClassService _classService;
     private readonly ITeachingAssignmentService _teachingAssignmentService;
+    private readonly ITeacherRepository _teacherRepository;
+    private readonly ApplicationDbContext _dbContext;
     private readonly ILogger<ClassesController> _logger;
 
     public ClassesController(
         IClassService classService,
         ITeachingAssignmentService teachingAssignmentService,
+        ITeacherRepository teacherRepository,
+        ApplicationDbContext dbContext,
         ILogger<ClassesController> logger)
     {
         _classService = classService;
         _teachingAssignmentService = teachingAssignmentService;
+        _teacherRepository = teacherRepository;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -38,6 +48,89 @@ public class ClassesController : ControllerBase
     public async Task<ActionResult<ResponseResult<ClassListResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting all classes: page={Page}, pageSize={PageSize}", page, pageSize);
+
+        if (User.IsInRole("TEACHER") && !User.IsInRole("ADMIN"))
+        {
+            var userIdValue = User.FindFirst("sub")?.Value ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (!long.TryParse(userIdValue, out var userId))
+            {
+                return Unauthorized(new ResponseResult<object>
+                {
+                    Success = false,
+                    Message = "Không thể xác định người dùng"
+                });
+            }
+
+            var teacher = await _teacherRepository.GetByUserIdAsync(userId);
+            if (teacher == null)
+            {
+                return Ok(new ResponseResult<ClassListResponse>
+                {
+                    Success = true,
+                    Message = "Không có lớp được phân công",
+                    Data = new ClassListResponse
+                    {
+                        TotalCount = 0,
+                        PageSize = pageSize,
+                        CurrentPage = page,
+                        TotalPages = 0,
+                        Classes = new List<ClassResponse>()
+                    }
+                });
+            }
+
+            var (aSuccess, aMessage, assignments) = await _teachingAssignmentService.GetAssignmentsByTeacherAsync(teacher.Id);
+            if (!aSuccess)
+            {
+                return BadRequest(new ResponseResult<object>
+                {
+                    Success = false,
+                    Message = aMessage
+                });
+            }
+
+            var classIds = assignments?
+                .Select(a => a.ClassId)
+                .Distinct()
+                .ToList() ?? new List<long>();
+
+            var classList = await _dbContext.Classes
+                .Include(c => c.ClassStudents)
+                .Include(c => c.ClassTeachers)
+                .Include(c => c.HomeroomTeacher)
+                    .ThenInclude(t => t!.User)
+                .Where(c => classIds.Contains(c.Id))
+                .OrderByDescending(c => c.Grade)
+                .ThenBy(c => c.Name)
+                .Select(c => new ClassResponse
+                {
+                    Id = c.Id,
+                    Code = c.Code,
+                    Name = c.Name,
+                    Grade = c.Grade,
+                    HomeroomTeacherId = c.HomeroomTeacherId,
+                    HomeroomTeacherName = c.HomeroomTeacher != null ? c.HomeroomTeacher.User.FullName : null,
+                    StudentCount = c.ClassStudents.Count,
+                    TeacherCount = c.ClassTeachers.Count
+                })
+                .ToListAsync();
+
+            var totalCount = classList.Count;
+            var paged = classList.Skip((page - 1) * pageSize).Take(pageSize).ToList();
+            return Ok(new ResponseResult<ClassListResponse>
+            {
+                Success = true,
+                Message = "Success",
+                Data = new ClassListResponse
+                {
+                    TotalCount = totalCount,
+                    PageSize = pageSize,
+                    CurrentPage = page,
+                    TotalPages = totalCount == 0 ? 0 : (totalCount + pageSize - 1) / pageSize,
+                    Classes = paged
+                }
+            });
+        }
         
         var (success, message, data) = await _classService.GetAllClassesAsync(page, pageSize);
         
@@ -341,6 +434,58 @@ public class ClassesController : ControllerBase
         {
             Success = success,
             Message = message
+        });
+    }
+
+    /// <summary>
+    /// Assign teacher to class
+    /// </summary>
+    [HttpPost("{classId}/assign-teacher")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<ActionResult<ResponseResult<object>>> AssignTeacher(long classId, [FromBody] AssignTeacherToClassRequest request)
+    {
+        _logger.LogInformation("Assigning teacher {TeacherId} to class {ClassId}", request.TeacherId, classId);
+
+        var (success, message, _) = await _teachingAssignmentService.CreateAssignmentAsync(
+            new CreateTeachingAssignmentRequest
+            {
+                ClassId = classId,
+                TeacherId = request.TeacherId,
+                SubjectId = request.SubjectId
+            });
+
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<object> { Success = true, Message = message });
+    }
+
+    /// <summary>
+    /// Assign multiple students to class
+    /// </summary>
+    [HttpPost("{classId}/assign-students")]
+    [Authorize(Roles = "ADMIN")]
+    public async Task<ActionResult<ResponseResult<object>>> AssignStudents(long classId, [FromBody] AssignStudentsToClassRequest request)
+    {
+        _logger.LogInformation("Assigning {Count} students to class {ClassId}", request.StudentIds.Count, classId);
+
+        var errors = new List<string>();
+        var successCount = 0;
+
+        foreach (var studentId in request.StudentIds)
+        {
+            var (success, message) = await _classService.AddStudentToClassAsync(classId, studentId);
+            if (success)
+                successCount++;
+            else
+                errors.Add($"Student {studentId}: {message}");
+        }
+
+        return Ok(new ResponseResult<object>
+        {
+            Success = errors.Count == 0,
+            Message = $"Assigned {successCount}/{request.StudentIds.Count} students",
+            Errors = errors.Count > 0 ? errors : null
         });
     }
 }

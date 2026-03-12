@@ -13,6 +13,11 @@ public interface IStudentService
     Task<(bool Success, string Message, StudentResponse? Data)> GetStudentByIdAsync(long id);
 
     /// <summary>
+    /// Get student by User ID (for current authenticated user)
+    /// </summary>
+    Task<(bool Success, string Message, StudentResponse? Data)> GetStudentByUserIdAsync(long userId);
+
+    /// <summary>
     /// Get all students with pagination
     /// </summary>
     Task<(bool Success, string Message, StudentListResponse? Data)> GetAllStudentsAsync(int page = 1, int pageSize = 20);

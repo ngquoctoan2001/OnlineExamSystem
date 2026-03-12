@@ -31,6 +31,9 @@ public class DataSeeder : IDataSeeder
             // Seed Permissions
             await SeedPermissionsAsync(context, cancellationToken);
 
+            // Save roles & permissions so they can be queried by subsequent seeds
+            await context.SaveChangesAsync(cancellationToken);
+
             // Seed Role-Permission Mappings
             await SeedRolePermissionsAsync(context, cancellationToken);
 
@@ -47,6 +50,13 @@ public class DataSeeder : IDataSeeder
             await SeedSubjectsAsync(context, cancellationToken);
 
             await context.SaveChangesAsync(cancellationToken);
+
+            // Seed sample teacher (depends on school + subjects being saved above)
+            await SeedSampleTeacherAsync(context, cancellationToken);
+
+            // Seed sample student
+            await SeedSampleStudentAsync(context, cancellationToken);
+
             _logger.LogInformation("Database seeding completed successfully");
         }
         catch (Exception ex)
@@ -263,8 +273,7 @@ public class DataSeeder : IDataSeeder
         _logger.LogInformation("Seeded {Count} subjects", subjects.Length);
     }
 
-    private async Task SeedDefaultSchoolAsync(ApplicationDbContext context, CancellationToken cancellationToken)
-    {
+    private async Task SeedDefaultSchoolAsync(ApplicationDbContext context, CancellationToken cancellationToken)    {
         if (await context.Schools.AnyAsync(cancellationToken))
             return;
 
@@ -272,10 +281,143 @@ public class DataSeeder : IDataSeeder
         {
             Name = "Trường THPT Mặc định",
             Address = "",
-            Phone = ""
+                Phone = "",
+                CreatedAt = DateTime.UtcNow
         };
 
         await context.Schools.AddAsync(school, cancellationToken);
         _logger.LogInformation("Seeded default school");
+    }
+
+    private async Task SeedSampleTeacherAsync(ApplicationDbContext context, CancellationToken cancellationToken)
+    {
+        if (await context.Users.AnyAsync(u => u.Username == "teacher1", cancellationToken))
+            return;
+
+        var teacherRole = await context.Roles.FirstOrDefaultAsync(r => r.Name == "TEACHER", cancellationToken);
+        if (teacherRole == null) return;
+
+        var school = await context.Schools.FirstOrDefaultAsync(cancellationToken);
+        if (school == null) return;
+
+        var mathSubject = await context.Subjects.FirstOrDefaultAsync(s => s.Code == "TOAN", cancellationToken);
+        if (mathSubject == null) return;
+
+        // 1. Create user
+        var teacherUser = new User
+        {
+            Username = "teacher1",
+            Email = "teacher1@onlineexam.local",
+            PasswordHash = _passwordHasher.HashPassword("Teacher123!@"),
+            FullName = "Nguyễn Văn Giáo",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await context.Users.AddAsync(teacherUser, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // 2. Assign TEACHER role
+        await context.UserRoles.AddAsync(new UserRole
+        {
+            UserId = teacherUser.Id,
+            RoleId = teacherRole.Id,
+            AssignedAt = DateTime.UtcNow
+        }, cancellationToken);
+
+        // 3. Create Teacher profile
+        var teacher = new Teacher
+        {
+            UserId = teacherUser.Id,
+            EmployeeId = "TC001",
+            Department = "Toán học"
+        };
+        await context.Teachers.AddAsync(teacher, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // 4. Create class and assign teacher as homeroom
+        var sampleClass = new Class
+        {
+            SchoolId = school.Id,
+            Code = "10A1",
+            Name = "Lớp 10A1",
+            Grade = 10,
+            HomeroomTeacherId = teacher.Id
+        };
+        await context.Classes.AddAsync(sampleClass, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // 5. Assign teacher to class with subject (ClassTeacher)
+        var classTeacher = new ClassTeacher
+        {
+            ClassId = sampleClass.Id,
+            TeacherId = teacher.Id,
+            SubjectId = mathSubject.Id,
+            AcademicYear = "2025-2026",
+            Semester = 1,
+            CreatedDate = DateTime.UtcNow,
+            UpdatedDate = DateTime.UtcNow,
+            AssignedAt = DateTime.UtcNow
+        };
+        await context.ClassTeachers.AddAsync(classTeacher, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        _logger.LogInformation("Seeded sample teacher: teacher1 / Teacher123!@ assigned to class 10A1 (Toán học)");
+    }
+
+    private async Task SeedSampleStudentAsync(ApplicationDbContext context, CancellationToken cancellationToken)
+    {
+        if (await context.Users.AnyAsync(u => u.Username == "student", cancellationToken))
+            return;
+
+        var studentRole = await context.Roles.FirstOrDefaultAsync(r => r.Name == "STUDENT", cancellationToken);
+        if (studentRole == null) return;
+
+        // 1. Create user
+        var studentUser = new User
+        {
+            Username = "student",
+            Email = "student@onlineexam.local",
+            PasswordHash = _passwordHasher.HashPassword("123123"),
+            FullName = "Trần Văn Học Sinh",
+            IsActive = true,
+            CreatedAt = DateTime.UtcNow,
+            UpdatedAt = DateTime.UtcNow
+        };
+        await context.Users.AddAsync(studentUser, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // 2. Assign STUDENT role
+        await context.UserRoles.AddAsync(new UserRole
+        {
+            UserId = studentUser.Id,
+            RoleId = studentRole.Id,
+            AssignedAt = DateTime.UtcNow
+        }, cancellationToken);
+
+        // 3. Create Student profile
+        var student = new Student
+        {
+            UserId = studentUser.Id,
+            StudentCode = "HS001",
+            RollNumber = "01"
+        };
+        await context.Students.AddAsync(student, cancellationToken);
+        await context.SaveChangesAsync(cancellationToken);
+
+        // 4. Add student to class 10A1 if exists
+        var sampleClass = await context.Classes.FirstOrDefaultAsync(c => c.Code == "10A1", cancellationToken);
+        if (sampleClass != null)
+        {
+            await context.ClassStudents.AddAsync(new ClassStudent
+            {
+                ClassId = sampleClass.Id,
+                StudentId = student.Id,
+                EnrolledAt = DateTime.UtcNow
+            }, cancellationToken);
+            await context.SaveChangesAsync(cancellationToken);
+        }
+
+        _logger.LogInformation("Seeded sample student: student / 123123 (HS001) assigned to class 10A1");
     }
 }

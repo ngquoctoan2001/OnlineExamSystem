@@ -15,6 +15,7 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
     private readonly ITeacherRepository _teacherRepository;
     private readonly ISubjectRepository _subjectRepository;
     private readonly IExamSettingsRepository _examSettingsRepository;
+    private readonly IExamAttemptRepository _examAttemptRepository;
     private readonly IActivityLogService _activityLog;
     private readonly ILogger<ExamService> _logger;
 
@@ -23,6 +24,7 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
         ITeacherRepository teacherRepository,
         ISubjectRepository subjectRepository,
         IExamSettingsRepository examSettingsRepository,
+        IExamAttemptRepository examAttemptRepository,
         IActivityLogService activityLog,
         ILogger<ExamService> logger)
     {
@@ -30,6 +32,7 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
         _teacherRepository = teacherRepository;
         _subjectRepository = subjectRepository;
         _examSettingsRepository = examSettingsRepository;
+        _examAttemptRepository = examAttemptRepository;
         _activityLog = activityLog;
         _logger = logger;
     }
@@ -181,6 +184,7 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
                 StartTime = request.StartTime,
                 EndTime = request.EndTime,
                 Description = request.Description?.Trim() ?? string.Empty,
+                SubjectExamTypeId = request.SubjectExamTypeId,
                 Status = "DRAFT"
             };
 
@@ -235,6 +239,7 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             exam.StartTime = request.StartTime;
             exam.EndTime = request.EndTime;
             exam.Description = request.Description?.Trim() ?? string.Empty;
+            exam.SubjectExamTypeId = request.SubjectExamTypeId;
 
             var updatedExam = await _examRepository.UpdateAsync(exam);
             var response = MapToExamResponse(updatedExam);
@@ -259,7 +264,12 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
 
             // Can only delete DRAFT exams
             if (exam.Status != "DRAFT")
-                return (false, "Cannot delete exam that is ACTIVE or CLOSED");
+                return (false, "Không thể xóa kỳ thi đang hoạt động hoặc đã đóng");
+
+            // Cannot delete if students have already attempted
+            var attempts = await _examAttemptRepository.GetExamAttemptsAsync(id);
+            if (attempts.Count > 0)
+                return (false, "Không thể xóa kỳ thi đã có học sinh tham gia");
 
             var deleted = await _examRepository.DeleteAsync(id);
             if (!deleted)
@@ -478,7 +488,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             EndTime = exam.EndTime,
             Description = exam.Description,
             Status = exam.Status,
-            CreatedAt = exam.CreatedAt
+            CreatedAt = exam.CreatedAt,
+            SubjectExamTypeId = exam.SubjectExamTypeId,
+            SubjectExamTypeName = exam.SubjectExamType?.Name,
+            SubjectExamTypeCoefficient = exam.SubjectExamType?.Coefficient
         };
     }
 

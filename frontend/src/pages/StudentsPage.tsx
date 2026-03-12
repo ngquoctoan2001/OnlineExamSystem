@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { studentsApi } from '../api/students'
-import type { StudentResponse, CreateStudentRequest } from '../types/api'
+import { classesApi } from '../api/classes'
+import { usersApi } from '../api/users'
+import type { StudentResponse, CreateStudentRequest, ClassResponse } from '../types/api'
 
 interface FormData extends CreateStudentRequest {}
 
@@ -21,15 +23,40 @@ export default function StudentsPage() {
   const [error, setError] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<number | null>(null)
   const [filterStatus, setFilterStatus] = useState<'' | 'active' | 'inactive'>('')
+  const [filterClassId, setFilterClassId] = useState(0)
+  const [allClasses, setAllClasses] = useState<ClassResponse[]>([])
   const [importResult, setImportResult] = useState<string | null>(null)
   const [createdAccount, setCreatedAccount] = useState<{ username: string; password: string } | null>(null)
+  const [selectedClassId, setSelectedClassId] = useState<number>(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const pageSize = 20
+
+  useEffect(() => {
+    classesApi.getAll(1, 200).then(r => setAllClasses(r.data.data?.classes || [])).catch(() => {})
+  }, [])
 
   const fetchStudents = useCallback(async () => {
     setLoading(true)
     try {
-      if (search.trim()) {
+      if (filterClassId) {
+        const res = await classesApi.getStudents(filterClassId)
+        const data = res.data.data || []
+        const rawList = Array.isArray(data) ? data : []
+        // Enrich with full student data
+        const enriched = await Promise.all(rawList.map(async (cs: { studentId: number; username: string; fullName: string; studentCode: string; rollNumber: string; enrolledAt: string }) => {
+          try {
+            const detail = await studentsApi.getById(cs.studentId)
+            const s = detail.data.data
+            if (s) return s
+          } catch { /* fallback */ }
+          return {
+            id: cs.studentId, userId: 0, username: cs.username, email: '', fullName: cs.fullName,
+            studentCode: cs.studentCode, rollNumber: cs.rollNumber, isActive: true, createdAt: cs.enrolledAt
+          } as StudentResponse
+        }))
+        setStudents(search.trim() ? enriched.filter(s => s.fullName.toLowerCase().includes(search.toLowerCase()) || s.studentCode.toLowerCase().includes(search.toLowerCase())) : enriched)
+        setTotal(enriched.length)
+      } else if (search.trim()) {
         const res = await studentsApi.search(search)
         const data = res.data.data || []
         setStudents(Array.isArray(data) ? data : [])
@@ -42,14 +69,14 @@ export default function StudentsPage() {
       }
     } catch { setStudents([]); setTotal(0) }
     finally { setLoading(false) }
-  }, [page, search])
+  }, [page, search, filterClassId])
 
   useEffect(() => { fetchStudents() }, [fetchStudents])
 
-  const openCreate = () => { setForm(emptyForm); setEditId(null); setError(''); setModal('create') }
+  const openCreate = () => { setForm(emptyForm); setEditId(null); setSelectedClassId(0); setError(''); setModal('create') }
   const openEdit = (s: StudentResponse) => {
     setForm({ username: s.username, email: s.email, password: '', fullName: s.fullName, studentCode: s.studentCode, rollNumber: s.rollNumber })
-    setEditId(s.id); setError(''); setModal('edit')
+    setEditId(s.id); setSelectedClassId(filterClassId || 0); setError(''); setModal('edit')
   }
 
   const handleSave = async () => {
@@ -58,12 +85,19 @@ export default function StudentsPage() {
     }
     setSaving(true); setError('')
     try {
+      let studentId: number | null = null
       if (modal === 'create') {
         if (!form.password) { setError('Vui lòng nhập mật khẩu'); setSaving(false); return }
-        await studentsApi.create(form)
+        const res = await studentsApi.create(form)
+        studentId = res.data.data?.id || null
         setCreatedAccount({ username: form.username, password: form.password })
       } else if (editId) {
         await studentsApi.update(editId, form)
+        studentId = editId
+      }
+      // Assign to class if selected
+      if (selectedClassId && studentId) {
+        try { await classesApi.addStudent(selectedClassId, studentId) } catch { /* best-effort */ }
       }
       setModal(null); fetchStudents()
     } catch (e: unknown) {
@@ -76,6 +110,17 @@ export default function StudentsPage() {
     try { await studentsApi.delete(id); fetchStudents() }
     catch { alert('Không thể xóa học sinh này') }
     finally { setDeleteConfirm(null) }
+  }
+
+  const [resetPwdTarget, setResetPwdTarget] = useState<{ userId: number; name: string } | null>(null)
+  const [resetPwdValue, setResetPwdValue] = useState('')
+  const handleResetPassword = async () => {
+    if (!resetPwdTarget || resetPwdValue.length < 6) { alert('Mật khẩu mới phải có ít nhất 6 ký tự'); return }
+    try {
+      await usersApi.resetPassword(resetPwdTarget.userId, resetPwdValue)
+      alert('Reset mật khẩu thành công!')
+      setResetPwdTarget(null); setResetPwdValue('')
+    } catch { alert('Không thể reset mật khẩu') }
   }
 
   const handleExport = async () => {
@@ -157,6 +202,10 @@ export default function StudentsPage() {
             <option value="active">Hoạt động</option>
             <option value="inactive">Tạm khóa</option>
           </select>
+          <select className="form-control" style={{ width: 160 }} value={filterClassId} onChange={e => { setFilterClassId(Number(e.target.value)); setPage(1) }}>
+            <option value={0}>Tất cả lớp</option>
+            {allClasses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
         </div>
 
         {loading ? (
@@ -204,6 +253,9 @@ export default function StudentsPage() {
                       <div className="actions">
                         <button className="btn-icon btn" title="Sửa" onClick={() => openEdit(s)}>
                           <span className="material-icons" style={{ fontSize: 18 }}>edit</span>
+                        </button>
+                        <button className="btn-icon btn" title="Reset mật khẩu" onClick={() => setResetPwdTarget({ userId: s.userId, name: s.fullName })} style={{ color: 'var(--warning, #f59e0b)' }}>
+                          <span className="material-icons" style={{ fontSize: 18 }}>lock_reset</span>
                         </button>
                         <button className="btn-icon btn" title="Xóa" onClick={() => setDeleteConfirm(s.id)} style={{ color: 'var(--danger)' }}>
                           <span className="material-icons" style={{ fontSize: 18 }}>delete</span>
@@ -276,6 +328,13 @@ export default function StudentsPage() {
                     <input className="form-control" type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Nhập mật khẩu" />
                   </div>
                 )}
+                <div className="form-group">
+                  <label className="form-label">Lớp học</label>
+                  <select className="form-control" value={selectedClassId} onChange={e => setSelectedClassId(Number(e.target.value))}>
+                    <option value={0}>-- Chọn lớp --</option>
+                    {allClasses.map(c => <option key={c.id} value={c.id}>{c.name} ({c.code})</option>)}
+                  </select>
+                </div>
               </div>
             </div>
             <div className="modal-footer">
@@ -304,6 +363,29 @@ export default function StudentsPage() {
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setDeleteConfirm(null)}>Hủy</button>
               <button className="btn btn-danger" onClick={() => handleDelete(deleteConfirm)}>Xóa</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reset Password Modal */}
+      {resetPwdTarget && (
+        <div className="modal-overlay" onClick={() => setResetPwdTarget(null)}>
+          <div className="modal" style={{ maxWidth: 400 }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Reset mật khẩu</h3>
+              <button className="btn btn-icon" onClick={() => setResetPwdTarget(null)}><span className="material-icons">close</span></button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: 12, fontSize: 13 }}>Reset mật khẩu cho: <strong>{resetPwdTarget.name}</strong></p>
+              <div className="form-group">
+                <label className="form-label">Mật khẩu mới</label>
+                <input type="password" className="form-control" value={resetPwdValue} onChange={e => setResetPwdValue(e.target.value)} minLength={6} placeholder="Nhập mật khẩu mới (tối thiểu 6 ký tự)" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-secondary" onClick={() => setResetPwdTarget(null)}>Hủy</button>
+              <button className="btn btn-primary" onClick={handleResetPassword}>Reset</button>
             </div>
           </div>
         </div>

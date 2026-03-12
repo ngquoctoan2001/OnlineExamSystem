@@ -40,6 +40,7 @@ public class ApplicationDbContext : DbContext
     public DbSet<ExamViolation> ExamViolations { get; set; } = null!;
     public DbSet<Notification> Notifications { get; set; } = null!;
     public DbSet<ActivityLog> ActivityLogs { get; set; } = null!;
+    public DbSet<SubjectExamType> SubjectExamTypes { get; set; } = null!;
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -138,5 +139,15 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Teacher>()
             .HasIndex(t => t.EmployeeId)
             .IsUnique();
+
+        // SubjectExamType
+        modelBuilder.Entity<SubjectExamType>()
+            .HasIndex(e => e.SubjectId);
+
+        modelBuilder.Entity<Exam>()
+            .HasOne(e => e.SubjectExamType)
+            .WithMany(set => set.Exams)
+            .HasForeignKey(e => e.SubjectExamTypeId)
+            .OnDelete(DeleteBehavior.SetNull);
     }
 }

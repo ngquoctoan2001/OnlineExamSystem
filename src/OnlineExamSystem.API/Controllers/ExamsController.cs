@@ -4,8 +4,9 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
-using OnlineExamSystem.Application.Services;
 using OnlineExamSystem.Infrastructure.Repositories;
+using OnlineExamSystem.Infrastructure.Services;
+using IExamService = OnlineExamSystem.Application.Services.IExamService;
 
 /// <summary>
 /// Exam management API endpoints
@@ -20,6 +21,8 @@ public class ExamsController : ControllerBase
     private readonly IExamService _examService;
     private readonly IExamRepository _examRepository;
     private readonly IExamClassRepository _examClassRepository;
+    private readonly IExamClassService _examClassService;
+    private readonly IExamQuestionService _examQuestionService;
     private readonly IStudentRepository _studentRepository;
     private readonly IExamAttemptRepository _examAttemptRepository;
     private readonly ILogger<ExamsController> _logger;
@@ -28,6 +31,8 @@ public class ExamsController : ControllerBase
         IExamService examService,
         IExamRepository examRepository,
         IExamClassRepository examClassRepository,
+        IExamClassService examClassService,
+        IExamQuestionService examQuestionService,
         IStudentRepository studentRepository,
         IExamAttemptRepository examAttemptRepository,
         ILogger<ExamsController> logger)
@@ -35,6 +40,8 @@ public class ExamsController : ControllerBase
         _examService = examService;
         _examRepository = examRepository;
         _examClassRepository = examClassRepository;
+        _examClassService = examClassService;
+        _examQuestionService = examQuestionService;
         _studentRepository = studentRepository;
         _examAttemptRepository = examAttemptRepository;
         _logger = logger;
@@ -541,5 +548,159 @@ public class ExamsController : ControllerBase
             Success = success,
             Message = message
         });
+    }
+
+    /// <summary>
+    /// Publish exam
+    /// </summary>
+    [HttpPost("{examId}/publish")]
+    public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> PublishExam(long examId)
+    {
+        _logger.LogInformation("Publishing exam: {ExamId}", examId);
+
+        var (success, message, data) = await _examService.ActivateExamAsync(examId);
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<ActivateExamResponse> { Success = true, Message = message, Data = data });
+    }
+
+    /// <summary>
+    /// Unpublish exam (back to draft)
+    /// </summary>
+    [HttpPost("{examId}/unpublish")]
+    public async Task<ActionResult<ResponseResult<object>>> UnpublishExam(long examId)
+    {
+        _logger.LogInformation("Unpublishing exam: {ExamId}", examId);
+
+        var (success, message) = await _examService.ChangeStatusAsync(examId, "DRAFT");
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<object> { Success = true, Message = message });
+    }
+
+    /// <summary>
+    /// Start exam (make active)
+    /// </summary>
+    [HttpPost("{examId}/start")]
+    public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> StartExam(long examId)
+    {
+        _logger.LogInformation("Starting exam: {ExamId}", examId);
+
+        var (success, message, data) = await _examService.ActivateExamAsync(examId);
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<ActivateExamResponse> { Success = true, Message = message, Data = data });
+    }
+
+    /// <summary>
+    /// Stop exam (close)
+    /// </summary>
+    [HttpPost("{examId}/stop")]
+    public async Task<ActionResult<ResponseResult<object>>> StopExam(long examId)
+    {
+        _logger.LogInformation("Stopping exam: {ExamId}", examId);
+
+        var (success, message) = await _examService.CloseExamAsync(examId);
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<object> { Success = true, Message = message });
+    }
+
+    /// <summary>
+    /// Duplicate exam
+    /// </summary>
+    [HttpPost("{examId}/duplicate")]
+    public async Task<ActionResult<ResponseResult<DuplicateExamResponse>>> DuplicateExam(long examId)
+    {
+        _logger.LogInformation("Duplicating exam: {ExamId}", examId);
+
+        var (getSuccess, getMessage, original) = await _examService.GetExamByIdAsync(examId);
+        if (!getSuccess || original == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = getMessage });
+
+        var createRequest = new CreateExamRequest
+        {
+            Title = $"{original.Title} (Copy)",
+            SubjectId = original.SubjectId,
+            CreatedBy = original.CreatedBy,
+            DurationMinutes = original.DurationMinutes,
+            StartTime = original.StartTime,
+            EndTime = original.EndTime,
+            Description = original.Description
+        };
+
+        var (success, message, newExam) = await _examService.CreateExamAsync(createRequest);
+        if (!success || newExam == null)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<DuplicateExamResponse>
+        {
+            Success = true,
+            Message = "Exam duplicated successfully",
+            Data = new DuplicateExamResponse
+            {
+                OriginalExamId = examId,
+                NewExamId = newExam.Id,
+                Title = newExam.Title,
+                Status = newExam.Status
+            }
+        });
+    }
+
+    /// <summary>
+    /// Preview exam with questions
+    /// </summary>
+    [HttpGet("{examId}/preview")]
+    public async Task<ActionResult<ResponseResult<ExamPreviewResponse>>> PreviewExam(long examId)
+    {
+        _logger.LogInformation("Previewing exam: {ExamId}", examId);
+
+        var (examSuccess, examMessage, exam) = await _examService.GetExamByIdAsync(examId);
+        if (!examSuccess || exam == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = examMessage });
+
+        var (qSuccess, qMessage, questionsData) = await _examQuestionService.GetExamQuestionsAsync(examId);
+
+        var preview = new ExamPreviewResponse
+        {
+            Id = exam.Id,
+            Title = exam.Title,
+            SubjectName = exam.SubjectName,
+            DurationMinutes = exam.DurationMinutes,
+            StartTime = exam.StartTime,
+            EndTime = exam.EndTime,
+            Description = exam.Description,
+            Status = exam.Status,
+            TotalQuestions = questionsData?.Questions?.Count ?? 0,
+            Questions = questionsData?.Questions?.Select(q => new ExamPreviewQuestionResponse
+            {
+                QuestionId = q.QuestionId,
+                Content = q.QuestionContent ?? string.Empty,
+                QuestionType = q.QuestionDifficulty ?? string.Empty,
+                OrderIndex = q.QuestionOrder,
+                MaxScore = q.MaxScore
+            }).ToList() ?? new()
+        };
+
+        return Ok(new ResponseResult<ExamPreviewResponse> { Success = true, Message = "Success", Data = preview });
+    }
+
+    /// <summary>
+    /// Assign class to exam
+    /// </summary>
+    [HttpPost("{examId}/assign-class")]
+    public async Task<ActionResult<ResponseResult<ExamClassResponse>>> AssignClass(long examId, [FromBody] AssignClassToExamRequest request)
+    {
+        _logger.LogInformation("Assigning class {ClassId} to exam {ExamId}", request.ClassId, examId);
+
+        var (success, message, data) = await _examClassService.AssignClassToExamAsync(examId, request.ClassId);
+        if (!success)
+            return BadRequest(new ResponseResult<object> { Success = false, Message = message });
+
+        return Ok(new ResponseResult<ExamClassResponse> { Success = true, Message = message, Data = data });
     }
 }

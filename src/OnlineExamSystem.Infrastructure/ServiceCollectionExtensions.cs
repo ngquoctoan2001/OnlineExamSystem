@@ -17,12 +17,11 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<ApplicationDbContext>(options =>
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
-            options.UseNpgsql(
+            options.UseSqlite(
                 connectionString,
                 optionsBuilder =>
                 {
                     optionsBuilder.MigrationsAssembly("OnlineExamSystem.Infrastructure");
-                    optionsBuilder.EnableRetryOnFailure(maxRetryCount: 5);
                 });
 
             if (!string.Equals(configuration["ASPNETCORE_ENVIRONMENT"], "Production", StringComparison.OrdinalIgnoreCase))

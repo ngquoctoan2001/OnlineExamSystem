@@ -1,8 +1,10 @@
 namespace OnlineExamSystem.Infrastructure.Services;
 
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Domain.Entities;
+using OnlineExamSystem.Infrastructure.Data;
 using OnlineExamSystem.Infrastructure.Repositories;
 
 /// <summary>
@@ -12,15 +14,18 @@ public class ClassService : IClassService
 {
     private readonly IClassRepository _classRepository;
     private readonly IStudentRepository _studentRepository;
+    private readonly ApplicationDbContext _dbContext;
     private readonly ILogger<ClassService> _logger;
 
     public ClassService(
         IClassRepository classRepository,
         IStudentRepository studentRepository,
+        ApplicationDbContext dbContext,
         ILogger<ClassService> logger)
     {
         _classRepository = classRepository;
         _studentRepository = studentRepository;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -180,10 +185,16 @@ public class ClassService : IClassService
                 return (false, "Class code already exists", null);
             }
 
-            // Create class - default SchoolId to 1
+            // Resolve SchoolId: use provided value, or fall back to the first available school
+            var resolvedSchoolId = request.SchoolId > 0
+                ? request.SchoolId
+                : (await _dbContext.Schools.Select(s => s.Id).FirstOrDefaultAsync());
+            if (resolvedSchoolId == 0)
+                return (false, "Không tìm thấy trường học trong hệ thống", null);
+
             var @class = new Class
             {
-                SchoolId = 1,
+                SchoolId = resolvedSchoolId,
                 Code = request.Code,
                 Name = request.Name,
                 Grade = request.Grade,

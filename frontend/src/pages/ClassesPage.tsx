@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { classesApi } from '../api/classes'
 import { teachersApi } from '../api/teachers'
 import type { ClassResponse, CreateClassRequest, TeacherResponse } from '../types/api'
@@ -8,6 +9,7 @@ const emptyForm: CreateClassRequest = {
 }
 
 export default function ClassesPage() {
+  const navigate = useNavigate()
   const [classes, setClasses] = useState<ClassResponse[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -148,6 +150,9 @@ export default function ClassesPage() {
                     <td>{c.teacherCount || 0}</td>
                     <td>
                       <div className="actions">
+                        <button className="btn-icon btn" title="Chi tiết" onClick={() => navigate(`/classes/${c.id}`)}>
+                          <span className="material-icons" style={{ fontSize: 18 }}>visibility</span>
+                        </button>
                         <button className="btn-icon btn" title="Sửa" onClick={() => openEdit(c)}>
                           <span className="material-icons" style={{ fontSize: 18 }}>edit</span>
                         </button>
@@ -209,7 +214,7 @@ export default function ClassesPage() {
                   <select className="form-control" value={form.homeroomTeacherId || ''} onChange={e => setForm(f => ({ ...f, homeroomTeacherId: e.target.value ? Number(e.target.value) : undefined }))}>
                     <option value="">-- Chọn GVCN --</option>
                     {teachers.map(t => (
-                      <option key={t.id} value={t.id}>{t.fullName} ({t.employeeCode})</option>
+                      <option key={t.id} value={t.id}>{t.fullName} ({t.employeeId})</option>
                     ))}
                   </select>
                 </div>

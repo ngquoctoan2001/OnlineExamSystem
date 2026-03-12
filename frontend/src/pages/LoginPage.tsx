@@ -1,6 +1,7 @@
 import { useState, FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useAuth } from '../contexts/AuthContext'
+import { authApi } from '../api/auth'
 import './LoginPage.css'
 
 export default function LoginPage() {
@@ -11,6 +12,13 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const { login } = useAuth()
   const navigate = useNavigate()
+
+  // Forgot password state
+  const [showForgot, setShowForgot] = useState(false)
+  const [forgotUsername, setForgotUsername] = useState('')
+  const [forgotMsg, setForgotMsg] = useState('')
+  const [forgotError, setForgotError] = useState('')
+  const [forgotLoading, setForgotLoading] = useState(false)
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
@@ -75,7 +83,7 @@ export default function LoginPage() {
           <div className="form-group">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <label className="form-label">Mật khẩu</label>
-              <a href="#" className="login-forgot" onClick={e => e.preventDefault()}>
+              <a href="#" className="login-forgot" onClick={e => { e.preventDefault(); setShowForgot(true); setForgotMsg(''); setForgotError(''); setForgotUsername('') }}>
                 Quên mật khẩu?
               </a>
             </div>
@@ -113,7 +121,7 @@ export default function LoginPage() {
         </form>
 
         <p className="login-contact">
-          Bạn chưa có tài khoản? <a href="#">Liên hệ quản trị viên</a>
+          Bạn chưa có tài khoản? <Link to="/register">Đăng ký ngay</Link>
         </p>
 
         <div className="login-footer">
@@ -125,6 +133,45 @@ export default function LoginPage() {
           Powered by Antigravity OS • © {new Date().getFullYear()}
         </div>
       </div>
+
+      {/* Forgot Password Modal */}
+      {showForgot && (
+        <div className="login-modal-overlay" onClick={() => setShowForgot(false)}>
+          <div className="login-modal" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>Quên mật khẩu</h3>
+              <button onClick={() => setShowForgot(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20 }}>✕</button>
+            </div>
+            <p style={{ fontSize: 13, color: '#666', marginBottom: 16 }}>
+              Nhập tên đăng nhập của bạn. Hệ thống sẽ gửi yêu cầu đặt lại mật khẩu tới quản trị viên.
+            </p>
+            {forgotMsg && <div className="alert alert-success" style={{ marginBottom: 12 }}><span className="material-icons" style={{ fontSize: 18 }}>check_circle</span> {forgotMsg}</div>}
+            {forgotError && <div className="alert alert-error" style={{ marginBottom: 12 }}><span className="material-icons" style={{ fontSize: 18 }}>error_outline</span> {forgotError}</div>}
+            <form onSubmit={async (e: FormEvent) => {
+              e.preventDefault()
+              if (!forgotUsername.trim()) { setForgotError('Vui lòng nhập tên đăng nhập'); return }
+              setForgotLoading(true); setForgotError(''); setForgotMsg('')
+              try {
+                await authApi.forgotPassword(forgotUsername.trim())
+                setForgotMsg('Yêu cầu đặt lại mật khẩu đã được gửi. Vui lòng liên hệ quản trị viên để nhận mật khẩu mới.')
+              } catch (err: any) {
+                setForgotError(err.response?.data?.message || 'Có lỗi xảy ra, vui lòng thử lại')
+              } finally { setForgotLoading(false) }
+            }}>
+              <div className="form-group">
+                <label className="form-label">Tên đăng nhập</label>
+                <div className="input-group">
+                  <span className="material-icons input-icon">person</span>
+                  <input className="form-control" type="text" placeholder="Nhập tên đăng nhập" value={forgotUsername} onChange={e => setForgotUsername(e.target.value)} autoFocus />
+                </div>
+              </div>
+              <button type="submit" className="btn btn-primary" style={{ width: '100%' }} disabled={forgotLoading}>
+                {forgotLoading ? 'Đang gửi...' : 'Gửi yêu cầu'}
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
