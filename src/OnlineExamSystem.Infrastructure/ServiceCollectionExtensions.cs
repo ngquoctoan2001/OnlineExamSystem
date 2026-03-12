@@ -17,7 +17,7 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<ApplicationDbContext>(options =>
         {
             var connectionString = configuration.GetConnectionString("DefaultConnection");
-            options.UseSqlite(
+            options.UseNpgsql(
                 connectionString,
                 optionsBuilder =>
                 {

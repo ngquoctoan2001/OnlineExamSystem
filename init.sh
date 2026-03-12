@@ -26,20 +26,11 @@ echo "Restoring NuGet packages..."
 dotnet restore
 echo "✓ Packages restored"
 
-# Create migrations
-echo ""
-echo "Creating database migrations..."
-cd src/OnlineExamSystem.Infrastructure
-dotnet ef migrations add InitialCreate --startup-project ../OnlineExamSystem.API
-echo "✓ Migration created"
-
 # Apply migrations
 echo ""
 echo "Applying database migrations..."
-dotnet ef database update --startup-project ../OnlineExamSystem.API
+dotnet ef database update --project src/OnlineExamSystem.Infrastructure --startup-project src/OnlineExamSystem.API
 echo "✓ Database migration applied"
-
-cd ../..
 
 # Summary
 echo ""

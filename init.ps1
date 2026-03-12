@@ -26,20 +26,11 @@ Write-Host "Restoring NuGet packages..." -ForegroundColor Yellow
 dotnet restore
 Write-Host "✓ Packages restored" -ForegroundColor Green
 
-# Create migrations
-Write-Host ""
-Write-Host "Creating database migrations..." -ForegroundColor Yellow
-cd src/OnlineExamSystem.Infrastructure
-dotnet ef migrations add InitialCreate --startup-project ../OnlineExamSystem.API
-Write-Host "✓ Migration created" -ForegroundColor Green
-
 # Apply migrations
 Write-Host ""
 Write-Host "Applying database migrations..." -ForegroundColor Yellow
-dotnet ef database update --startup-project ../OnlineExamSystem.API
+dotnet ef database update --project src/OnlineExamSystem.Infrastructure --startup-project src/OnlineExamSystem.API
 Write-Host "✓ Database migration applied" -ForegroundColor Green
-
-cd ../..
 
 # Summary
 Write-Host ""
