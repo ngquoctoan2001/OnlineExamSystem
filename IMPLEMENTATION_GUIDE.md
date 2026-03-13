@@ -19,6 +19,23 @@
 | **Phase 6: UAT & Cutover** | Triển khai chính thức an toàn | UAT sign-off, runbook deploy/rollback, go-live checklist | 6h |
 |  |  | **TOTAL** | **111h** |
 
+### Trạng thái thực thi (cập nhật 2026-03-13)
+
+| Hạng mục | Trạng thái | Ghi chú |
+|---|---|---|
+| Notifications ownership guard | **Done** | Chặn truy cập chéo `userId`, mark/delete theo owner hoặc admin. |
+| ExamAttempts ownership guard | **Done** | Enforce ownership theo claim cho student và exam-access cho teacher/admin trên attempt endpoints. |
+| Retake policy (max attempts/cooldown/pass-retake) | **Done** | Đã có field model + DTO + service enforcement + migration. |
+| Late submission (grace/penalty) | **Done** | Đã triển khai backend + migration từ phase trước. |
+| Notification khi publish kết quả | **Done** | Đã có trong grading flow. |
+| Grading audit trail dedicated table | **Partial** | **Quyết định hiện tại**: giữ ActivityLog (`GRADE_UPDATED`) cho release này; chưa tạo bảng `GradingAuditLog` riêng. |
+| Violation tracking frontend + backend end-to-end | **Partial** | Backend có API/log violation, frontend detection/UX còn thiếu đầy đủ theo checklist PO/UAT. |
+
+### Quyết định audit log
+
+- Chọn **giữ ActivityLog** cho giai đoạn hiện tại để tránh mở rộng schema và rủi ro phát sinh trước UAT.
+- Điều kiện nâng cấp sau UAT: nếu cần truy vết pháp lý chi tiết hơn (old/new score theo từng field), sẽ triển khai `GradingAuditLog` dedicated ở phase sau.
+
 ### Nguyên tắc nghiệp vụ bắt buộc (theo xác nhận)
 
 - 1 giáo viên chủ nhiệm tối đa 1 lớp tại một thời điểm.

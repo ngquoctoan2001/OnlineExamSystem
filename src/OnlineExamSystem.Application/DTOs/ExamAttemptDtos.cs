@@ -38,6 +38,8 @@ public class SubmitExamAttemptResponse
     public long AttemptId { get; set; }
     public string Status { get; set; } = null!;
     public DateTime SubmittedAt { get; set; }
+    public bool IsLateSubmission { get; set; }
+    public decimal LatePenaltyPercent { get; set; }
     public string Message { get; set; } = null!;
 }
 

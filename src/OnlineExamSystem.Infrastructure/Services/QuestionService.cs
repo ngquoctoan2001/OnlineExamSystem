@@ -476,6 +476,40 @@ public class QuestionService : IQuestionService
         }
     }
 
+    public async Task<(bool Success, string Message, List<QuestionResponse>? Data)> GetQuestionsByTeacherAsync(long teacherId)
+    {
+        try
+        {
+            var questions = await _questionRepository.GetByTeacherAsync(teacherId);
+            var items = await MapToResponseListAsync(questions);
+            return (true, "Success", items);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting questions by teacher");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
+    public async Task<(bool Success, string Message, List<QuestionResponse>? Data)> GetQuestionsByTeacherAndSubjectAsync(long teacherId, long subjectId)
+    {
+        try
+        {
+            var subject = await _subjectRepository.GetByIdAsync(subjectId);
+            if (subject == null)
+                return (false, "Subject not found", null);
+
+            var questions = await _questionRepository.GetByTeacherAndSubjectAsync(teacherId, subjectId);
+            var items = await MapToResponseListAsync(questions);
+            return (true, "Success", items);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting questions by teacher and subject");
+            return (false, $"Error: {ex.Message}", null);
+        }
+    }
+
     private async Task<QuestionDetailResponse> GetQuestionDetailResponseAsync(Question question)    {
         var options = await _optionRepository.GetByQuestionIdAsync(question.Id);
         var tags = await _tagRepository.GetTagsByQuestionAsync(question.Id);

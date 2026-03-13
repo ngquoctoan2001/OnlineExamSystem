@@ -161,6 +161,15 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             if (request.StartTime >= request.EndTime)
                 return (false, "Start time must be before end time", null);
 
+            if (request.MaxAttemptsAllowed < 0)
+                return (false, "Max attempts must be greater than or equal to 0", null);
+
+            if (request.MinutesBetweenRetakes < 0)
+                return (false, "Minutes between retakes must be greater than or equal to 0", null);
+
+            if (request.PassingScore < 0 || request.PassingScore > 100)
+                return (false, "Passing score must be between 0 and 100", null);
+
             // Check if exam title already exists
             if (await _examRepository.TitleExistsAsync(request.Title))
                 return (false, "An exam with this title already exists", null);
@@ -181,6 +190,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
                 SubjectId = request.SubjectId,
                 CreatedBy = request.CreatedBy,
                 DurationMinutes = request.DurationMinutes,
+                MaxAttemptsAllowed = request.MaxAttemptsAllowed,
+                MinutesBetweenRetakes = request.MinutesBetweenRetakes,
+                AllowRetakeIfPassed = request.AllowRetakeIfPassed,
+                PassingScore = request.PassingScore,
                 StartTime = request.StartTime,
                 EndTime = request.EndTime,
                 Description = request.Description?.Trim() ?? string.Empty,
@@ -224,6 +237,15 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             if (request.StartTime >= request.EndTime)
                 return (false, "Start time must be before end time", null);
 
+            if (request.MaxAttemptsAllowed < 0)
+                return (false, "Max attempts must be greater than or equal to 0", null);
+
+            if (request.MinutesBetweenRetakes < 0)
+                return (false, "Minutes between retakes must be greater than or equal to 0", null);
+
+            if (request.PassingScore < 0 || request.PassingScore > 100)
+                return (false, "Passing score must be between 0 and 100", null);
+
             // Check if new title exists (excluding current exam)
             if (request.Title.Trim() != exam.Title && await _examRepository.TitleExistsAsync(request.Title, id))
                 return (false, "An exam with this title already exists", null);
@@ -236,6 +258,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             exam.Title = request.Title.Trim();
             exam.SubjectId = request.SubjectId;
             exam.DurationMinutes = request.DurationMinutes;
+            exam.MaxAttemptsAllowed = request.MaxAttemptsAllowed;
+            exam.MinutesBetweenRetakes = request.MinutesBetweenRetakes;
+            exam.AllowRetakeIfPassed = request.AllowRetakeIfPassed;
+            exam.PassingScore = request.PassingScore;
             exam.StartTime = request.StartTime;
             exam.EndTime = request.EndTime;
             exam.Description = request.Description?.Trim() ?? string.Empty;
@@ -297,6 +323,8 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
 
             // Get or create settings
             var settings = await _examSettingsRepository.GetByExamIdAsync(examId);
+            var normalizedGraceMinutes = Math.Max(0, request.GracePeriodMinutes);
+            var normalizedPenaltyPercent = Math.Clamp(request.LatePenaltyPercent, 0m, 100m);
             
             if (settings == null)
             {
@@ -306,7 +334,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
                     ShuffleQuestions = request.ShuffleQuestions,
                     ShuffleAnswers = request.ShuffleAnswers,
                     ShowResultImmediately = request.ShowResultImmediately,
-                    AllowReview = request.AllowReview
+                    AllowReview = request.AllowReview,
+                    AllowLateSubmission = request.AllowLateSubmission,
+                    GracePeriodMinutes = normalizedGraceMinutes,
+                    LatePenaltyPercent = normalizedPenaltyPercent
                 };
                 settings = await _examSettingsRepository.CreateAsync(settings);
             }
@@ -316,6 +347,9 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
                 settings.ShuffleAnswers = request.ShuffleAnswers;
                 settings.ShowResultImmediately = request.ShowResultImmediately;
                 settings.AllowReview = request.AllowReview;
+                settings.AllowLateSubmission = request.AllowLateSubmission;
+                settings.GracePeriodMinutes = normalizedGraceMinutes;
+                settings.LatePenaltyPercent = normalizedPenaltyPercent;
                 settings = await _examSettingsRepository.UpdateAsync(settings);
             }
 
@@ -350,7 +384,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
                     ShuffleQuestions = false,
                     ShuffleAnswers = false,
                     ShowResultImmediately = false,
-                    AllowReview = false
+                    AllowReview = false,
+                    AllowLateSubmission = false,
+                    GracePeriodMinutes = 0,
+                    LatePenaltyPercent = 0m
                 };
                 return (true, "Default settings", MapToSettingsResponse(defaultSettings));
             }
@@ -484,6 +521,10 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             SubjectName = exam.Subject?.Name ?? string.Empty,
             CreatedBy = exam.CreatedBy,
             DurationMinutes = exam.DurationMinutes,
+            MaxAttemptsAllowed = exam.MaxAttemptsAllowed,
+            MinutesBetweenRetakes = exam.MinutesBetweenRetakes,
+            AllowRetakeIfPassed = exam.AllowRetakeIfPassed,
+            PassingScore = exam.PassingScore,
             StartTime = exam.StartTime,
             EndTime = exam.EndTime,
             Description = exam.Description,
@@ -505,6 +546,9 @@ public class ExamService : OnlineExamSystem.Application.Services.IExamService
             ShuffleAnswers = settings.ShuffleAnswers,
             ShowResultImmediately = settings.ShowResultImmediately,
             AllowReview = settings.AllowReview,
+            AllowLateSubmission = settings.AllowLateSubmission,
+            GracePeriodMinutes = settings.GracePeriodMinutes,
+            LatePenaltyPercent = settings.LatePenaltyPercent,
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow
         };

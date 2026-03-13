@@ -102,6 +102,10 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<Exam>()
             .HasIndex(e => e.SubjectId);
 
+        modelBuilder.Entity<Exam>()
+            .Property(e => e.PassingScore)
+            .HasPrecision(5, 2);
+
         modelBuilder.Entity<ExamAttempt>()
             .HasIndex(ea => ea.StudentId);
 
@@ -111,8 +115,43 @@ public class ApplicationDbContext : DbContext
         modelBuilder.Entity<ExamAttempt>()
             .HasIndex(ea => new { ea.StudentId, ea.ExamId });
 
+        modelBuilder.Entity<ExamAttempt>()
+            .Property(ea => ea.RowVersion)
+            .IsRowVersion();
+
+        modelBuilder.Entity<ExamAttempt>()
+            .Property(ea => ea.LatePenaltyPercent)
+            .HasPrecision(5, 2);
+
+        modelBuilder.Entity<ExamSetting>()
+            .Property(es => es.LatePenaltyPercent)
+            .HasPrecision(5, 2);
+
         modelBuilder.Entity<Answer>()
             .HasIndex(a => a.ExamAttemptId);
+
+        // Prevent duplicate answers for same question in one attempt.
+        modelBuilder.Entity<Answer>()
+            .HasIndex(a => new { a.ExamAttemptId, a.QuestionId })
+            .IsUnique();
+
+        modelBuilder.Entity<Answer>()
+            .HasOne(a => a.ExamAttempt)
+            .WithMany(ea => ea.Answers)
+            .HasForeignKey(a => a.ExamAttemptId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<GradingResult>()
+            .HasOne(gr => gr.ExamAttempt)
+            .WithMany(ea => ea.GradingResults)
+            .HasForeignKey(gr => gr.ExamAttemptId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        modelBuilder.Entity<ExamViolation>()
+            .HasOne(ev => ev.ExamAttempt)
+            .WithMany(ea => ea.ExamViolations)
+            .HasForeignKey(ev => ev.ExamAttemptId)
+            .OnDelete(DeleteBehavior.Cascade);
 
         modelBuilder.Entity<GradingResult>()
             .HasIndex(gr => gr.ExamAttemptId);

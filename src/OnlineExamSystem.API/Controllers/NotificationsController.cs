@@ -4,6 +4,7 @@ using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
 using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
+using System.Security.Claims;
 
 namespace OnlineExamSystem.API.Controllers;
 
@@ -23,14 +24,37 @@ public class NotificationsController : ControllerBase
         _classRepository = classRepository;
     }
 
+    private long? GetCurrentUserId()
+    {
+        var claim = User.FindFirst("userId")?.Value
+                    ?? User.FindFirst("UserId")?.Value
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return long.TryParse(claim, out var id) ? id : null;
+    }
+
+    private bool CanAccessUserNotifications(long userId)
+    {
+        if (User.IsInRole("ADMIN"))
+            return true;
+
+        var currentUserId = GetCurrentUserId();
+        return currentUserId.HasValue && currentUserId.Value == userId;
+    }
+
     [HttpGet]
     public async Task<ActionResult<ResponseResult<List<NotificationResponse>>>> GetUserNotifications(
         [FromQuery] long userId, [FromQuery] bool? unreadOnly = null)
     {
+        if (!CanAccessUserNotifications(userId))
+            return Forbid();
+
         var (success, message, data) = await _notificationService.GetUserNotificationsAsync(userId, unreadOnly);
         return Ok(new ResponseResult<List<NotificationResponse>> { Success = success, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost]
     public async Task<ActionResult<ResponseResult<NotificationResponse>>> Create([FromBody] CreateNotificationRequest request)
     {
@@ -47,6 +71,13 @@ public class NotificationsController : ControllerBase
     [HttpPut("{id}/read")]
     public async Task<ActionResult<ResponseResult<object>>> MarkAsRead(long id)
     {
+        var notification = await _notificationService.GetByIdAsync(id);
+        if (notification == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Notification not found" });
+
+        if (!CanAccessUserNotifications(notification.UserId))
+            return Forbid();
+
         var (success, message) = await _notificationService.MarkAsReadAsync(id);
         if (!success)
             return NotFound(new ResponseResult<object> { Success = false, Message = message });
@@ -56,6 +87,9 @@ public class NotificationsController : ControllerBase
     [HttpPut("read-all")]
     public async Task<ActionResult<ResponseResult<object>>> MarkAllAsRead([FromQuery] long userId)
     {
+        if (!CanAccessUserNotifications(userId))
+            return Forbid();
+
         var (success, message) = await _notificationService.MarkAllAsReadAsync(userId);
         return Ok(new ResponseResult<object> { Success = success, Message = message });
     }
@@ -63,6 +97,9 @@ public class NotificationsController : ControllerBase
     [HttpGet("unread-count")]
     public async Task<ActionResult<ResponseResult<int>>> GetUnreadCount([FromQuery] long userId)
     {
+        if (!CanAccessUserNotifications(userId))
+            return Forbid();
+
         var count = await _notificationService.GetUnreadCountAsync(userId);
         return Ok(new ResponseResult<int> { Success = true, Message = "OK", Data = count });
     }
@@ -70,6 +107,13 @@ public class NotificationsController : ControllerBase
     [HttpDelete("{id}")]
     public async Task<ActionResult<ResponseResult<object>>> Delete(long id)
     {
+        var notification = await _notificationService.GetByIdAsync(id);
+        if (notification == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Notification not found" });
+
+        if (!CanAccessUserNotifications(notification.UserId))
+            return Forbid();
+
         var (success, message) = await _notificationService.DeleteAsync(id);
         if (!success)
             return NotFound(new ResponseResult<object> { Success = false, Message = message });

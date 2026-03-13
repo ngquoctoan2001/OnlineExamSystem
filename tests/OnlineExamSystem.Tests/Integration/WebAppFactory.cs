@@ -93,13 +93,13 @@ public class WebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
 
         if (!db.Users.Any(u => u.Username == "student1"))
         {
-            var studentUser = new User { Username = "student1", Email = "student1@test.local", PasswordHash = passwordHasher.HashPassword("Student123!"), FullName = "Student One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
-            db.Users.Add(studentUser);
+            var createdStudentUser = new User { Username = "student1", Email = "student1@test.local", PasswordHash = passwordHasher.HashPassword("Student123!"), FullName = "Student One", IsActive = true, CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow };
+            db.Users.Add(createdStudentUser);
             await db.SaveChangesAsync();
-            if (studentRole != null) db.UserRoles.Add(new UserRole { UserId = studentUser.Id, RoleId = studentRole.Id, AssignedAt = DateTime.UtcNow });
+            if (studentRole != null) db.UserRoles.Add(new UserRole { UserId = createdStudentUser.Id, RoleId = studentRole.Id, AssignedAt = DateTime.UtcNow });
 
-            if (!db.Students.Any(s => s.UserId == studentUser.Id))
-                db.Students.Add(new Student { UserId = studentUser.Id, StudentCode = "STU001", RollNumber = "R001" });
+            if (!db.Students.Any(s => s.UserId == createdStudentUser.Id))
+                db.Students.Add(new Student { UserId = createdStudentUser.Id, StudentCode = "STU001", RollNumber = "R001" });
         }
 
         // Ensure school and class exist
@@ -117,5 +117,109 @@ public class WebAppFactory : WebApplicationFactory<Program>, IAsyncLifetime
             db.Subjects.Add(new Subject { Name = "Mathematics", Code = "MATH", Description = "Math subject" });
 
         await db.SaveChangesAsync();
+
+        // Seed deterministic data for authorization matrix tests (grading + exam-attempt endpoints).
+        var teacherUser = db.Users.FirstOrDefault(u => u.Username == "teacher1");
+        var studentUser = db.Users.FirstOrDefault(u => u.Username == "student1");
+        if (teacherUser == null || studentUser == null)
+            return;
+
+        var teacher = db.Teachers.FirstOrDefault(t => t.UserId == teacherUser.Id);
+        var student = db.Students.FirstOrDefault(s => s.UserId == studentUser.Id);
+        var mathSubject = db.Subjects.FirstOrDefault(s => s.Code == "MATH");
+        var anyClass = db.Classes.FirstOrDefault();
+
+        if (teacher == null || student == null || mathSubject == null || anyClass == null)
+            return;
+
+        if (!db.ClassTeachers.Any(ct => ct.ClassId == anyClass.Id && ct.TeacherId == teacher.Id))
+        {
+            db.ClassTeachers.Add(new ClassTeacher
+            {
+                Id = DateTime.UtcNow.Ticks,
+                ClassId = anyClass.Id,
+                TeacherId = teacher.Id,
+                SubjectId = mathSubject.Id,
+                AcademicYear = "2025-2026",
+                Semester = 2,
+                CreatedDate = DateTime.UtcNow,
+                UpdatedDate = DateTime.UtcNow,
+                AssignedAt = DateTime.UtcNow
+            });
+        }
+
+        if (!db.ClassStudents.Any(cs => cs.ClassId == anyClass.Id && cs.StudentId == student.Id))
+        {
+            db.ClassStudents.Add(new ClassStudent
+            {
+                ClassId = anyClass.Id,
+                StudentId = student.Id,
+                EnrolledAt = DateTime.UtcNow
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        var matrixExam = db.Exams.FirstOrDefault(e => e.Title == "AUTH_MATRIX_EXAM");
+        if (matrixExam == null)
+        {
+            matrixExam = new Exam
+            {
+                Title = "AUTH_MATRIX_EXAM",
+                SubjectId = mathSubject.Id,
+                CreatedBy = teacher.Id,
+                DurationMinutes = 60,
+                StartTime = DateTime.UtcNow.AddHours(-2),
+                EndTime = DateTime.UtcNow.AddHours(2),
+                Status = "ACTIVE",
+                Description = "Seeded for integration authorization matrix tests",
+                CreatedAt = DateTime.UtcNow
+            };
+            db.Exams.Add(matrixExam);
+            await db.SaveChangesAsync();
+        }
+
+        if (!db.ExamClasses.Any(ec => ec.ExamId == matrixExam.Id && ec.ClassId == anyClass.Id))
+        {
+            db.ExamClasses.Add(new ExamClass
+            {
+                ExamId = matrixExam.Id,
+                ClassId = anyClass.Id,
+                AssignedAt = DateTime.UtcNow
+            });
+        }
+
+        if (!db.ExamSettings.Any(es => es.ExamId == matrixExam.Id))
+        {
+            db.ExamSettings.Add(new ExamSetting
+            {
+                ExamId = matrixExam.Id,
+                ShuffleQuestions = false,
+                ShuffleAnswers = false,
+                ShowResultImmediately = false,
+                AllowReview = false,
+                AllowLateSubmission = true,
+                GracePeriodMinutes = 15,
+                LatePenaltyPercent = 10m
+            });
+        }
+
+        await db.SaveChangesAsync();
+
+        if (!db.ExamAttempts.Any(a => a.ExamId == matrixExam.Id && a.StudentId == student.Id))
+        {
+            db.ExamAttempts.Add(new ExamAttempt
+            {
+                ExamId = matrixExam.Id,
+                StudentId = student.Id,
+                StartTime = DateTime.UtcNow.AddMinutes(-30),
+                EndTime = DateTime.UtcNow.AddMinutes(-5),
+                Status = "SUBMITTED",
+                IsResultPublished = false,
+                IsLateSubmission = false,
+                LatePenaltyPercent = 0m
+            });
+            await db.SaveChangesAsync();
+        }
     }
 }

@@ -4,8 +4,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
+using OnlineExamSystem.Domain.Entities;
 using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
+using System.Security.Claims;
 using IExamService = OnlineExamSystem.Application.Services.IExamService;
 
 /// <summary>
@@ -25,6 +27,8 @@ public class ExamsController : ControllerBase
     private readonly IExamQuestionService _examQuestionService;
     private readonly IStudentRepository _studentRepository;
     private readonly IExamAttemptRepository _examAttemptRepository;
+    private readonly ITeacherRepository _teacherRepository;
+    private readonly ITeachingAssignmentRepository _teachingAssignmentRepository;
     private readonly ILogger<ExamsController> _logger;
 
     public ExamsController(
@@ -35,6 +39,8 @@ public class ExamsController : ControllerBase
         IExamQuestionService examQuestionService,
         IStudentRepository studentRepository,
         IExamAttemptRepository examAttemptRepository,
+        ITeacherRepository teacherRepository,
+        ITeachingAssignmentRepository teachingAssignmentRepository,
         ILogger<ExamsController> logger)
     {
         _examService = examService;
@@ -44,24 +50,195 @@ public class ExamsController : ControllerBase
         _examQuestionService = examQuestionService;
         _studentRepository = studentRepository;
         _examAttemptRepository = examAttemptRepository;
+        _teacherRepository = teacherRepository;
+        _teachingAssignmentRepository = teachingAssignmentRepository;
         _logger = logger;
     }
 
+    private long? GetCurrentUserId()
+    {
+        var claim = User.FindFirst("userId")?.Value
+                    ?? User.FindFirst("UserId")?.Value
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return long.TryParse(claim, out var id) ? id : null;
+    }
+
+    private async Task<Teacher?> GetCurrentTeacherAsync()
+    {
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue) return null;
+        return await _teacherRepository.GetByUserIdAsync(userId.Value);
+    }
+
+    private async Task<bool> TeacherCanTeachSubjectAsync(long teacherId, long subjectId)
+    {
+        var assignments = await _teachingAssignmentRepository.GetByTeacherAsync(teacherId);
+        return assignments.Any(a => a.SubjectId == subjectId);
+    }
+
+    private async Task<bool> CurrentTeacherOwnsExamAsync(long examId)
+    {
+        if (User.IsInRole("ADMIN"))
+            return true;
+
+        if (!User.IsInRole("TEACHER"))
+            return false;
+
+        var teacher = await GetCurrentTeacherAsync();
+        if (teacher == null)
+            return false;
+
+        var exam = await _examRepository.GetByIdAsync(examId);
+        return exam != null && exam.CreatedBy == teacher.Id;
+    }
+
     /// <summary>
-    /// Get all exams
+    /// Get all exams (filtered by user role: Admin sees all, Teachers see only their own, Students see assigned)
     /// </summary>
     [HttpGet]
     public async Task<ActionResult<ResponseResult<ExamListResponse>>> GetAll([FromQuery] int page = 1, [FromQuery] int pageSize = 20)
     {
         _logger.LogInformation("Getting all exams: page={Page}, pageSize={PageSize}", page, pageSize);
         
-        var (success, message, data) = await _examService.GetAllExamsAsync(page, pageSize);
-        
-        return Ok(new ResponseResult<ExamListResponse>
+        // For ADMIN: show all exams
+        if (User.IsInRole("ADMIN"))
         {
-            Success = success,
-            Message = message,
-            Data = data
+            var (success, message, data) = await _examService.GetAllExamsAsync(page, pageSize);
+            return Ok(new ResponseResult<ExamListResponse>
+            {
+                Success = success,
+                Message = message,
+                Data = data
+            });
+        }
+
+        // For TEACHER: show only their own exams
+        if (User.IsInRole("TEACHER"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+            {
+                return Unauthorized(new ResponseResult<ExamListResponse>
+                {
+                    Success = false,
+                    Message = "Teacher profile not found"
+                });
+            }
+
+            var (success, message, exams) = await _examService.GetExamsByTeacherAsync(teacher.Id);
+            if (!success)
+            {
+                return BadRequest(new ResponseResult<ExamListResponse>
+                {
+                    Success = false,
+                    Message = message
+                });
+            }
+
+            // Apply pagination
+            var totalCount = exams?.Count ?? 0;
+            var skip = (page - 1) * pageSize;
+            var paginatedExams = exams?.Skip(skip).Take(pageSize).ToList() ?? [];
+
+            var response = new ExamListResponse
+            {
+                Items = paginatedExams,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+
+            return Ok(new ResponseResult<ExamListResponse>
+            {
+                Success = true,
+                Message = "Success",
+                Data = response
+            });
+        }
+
+        // For STUDENT: show only exams assigned to their classes
+        if (User.IsInRole("STUDENT"))
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Unauthorized(new ResponseResult<ExamListResponse>
+                {
+                    Success = false,
+                    Message = "Student not found"
+                });
+            }
+
+            var student = await _studentRepository.GetByUserIdAsync(userId.Value);
+            if (student == null)
+            {
+                return Unauthorized(new ResponseResult<ExamListResponse>
+                {
+                    Success = false,
+                    Message = "Student profile not found"
+                });
+            }
+
+            var classIds = (await _studentRepository.GetStudentClassesAsync(student.Id))
+                .Select(cs => cs.ClassId)
+                .Distinct()
+                .ToList();
+
+            var allExams = new List<ExamResponse>();
+            foreach (var classId in classIds)
+            {
+                var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+                foreach (var examClass in examClasses)
+                {
+                    var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
+                    if (exam != null)
+                    {
+                        allExams.Add(new ExamResponse
+                        {
+                            Id = exam.Id,
+                            Title = exam.Title,
+                            SubjectId = exam.SubjectId,
+                            SubjectName = exam.Subject?.Name ?? string.Empty,
+                            CreatedBy = exam.CreatedBy,
+                            DurationMinutes = exam.DurationMinutes,
+                            StartTime = exam.StartTime,
+                            EndTime = exam.EndTime,
+                            Description = exam.Description,
+                            Status = exam.Status,
+                            CreatedAt = exam.CreatedAt
+                        });
+                    }
+                }
+            }
+
+            // Remove duplicates and apply pagination
+            var distinctExams = allExams.DistinctBy(e => e.Id).OrderByDescending(e => e.StartTime).ToList();
+            var totalCount = distinctExams.Count;
+            var skip = (page - 1) * pageSize;
+            var paginatedExams = distinctExams.Skip(skip).Take(pageSize).ToList();
+
+            var response = new ExamListResponse
+            {
+                Items = paginatedExams,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+
+            return Ok(new ResponseResult<ExamListResponse>
+            {
+                Success = true,
+                Message = "Success",
+                Data = response
+            });
+        }
+
+        return Unauthorized(new ResponseResult<ExamListResponse>
+        {
+            Success = false,
+            Message = "Unauthorized"
         });
     }
 
@@ -73,6 +250,16 @@ public class ExamsController : ControllerBase
     {
         _logger.LogInformation("Getting exam: {ExamId}", id);
         
+        // Check authorization for TEACHER role
+        if (User.IsInRole("TEACHER"))
+        {
+            var canAccess = await CurrentTeacherOwnsExamAsync(id);
+            if (!canAccess)
+            {
+                return Forbid();
+            }
+        }
+
         var (success, message, data) = await _examService.GetExamByIdAsync(id);
         
         if (!success)
@@ -100,23 +287,150 @@ public class ExamsController : ControllerBase
     {
         _logger.LogInformation("Searching exams: {SearchTerm}", searchTerm);
         
-        var (success, message, data) = await _examService.SearchExamsAsync(searchTerm);
-        
-        return Ok(new ResponseResult<List<ExamResponse>>
+        // For ADMIN: search all exams
+        if (User.IsInRole("ADMIN"))
         {
-            Success = success,
-            Message = message,
-            Data = data
+            var (success, message, data) = await _examService.SearchExamsAsync(searchTerm);
+            return Ok(new ResponseResult<List<ExamResponse>>
+            {
+                Success = success,
+                Message = message,
+                Data = data
+            });
+        }
+
+        // For TEACHER: search only their own exams
+        if (User.IsInRole("TEACHER"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+            {
+                return Unauthorized(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = false,
+                    Message = "Teacher profile not found"
+                });
+            }
+
+            var (success, message, allExams) = await _examService.GetExamsByTeacherAsync(teacher.Id);
+            if (!success)
+            {
+                return Ok(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = true,
+                    Message = "No exams found",
+                    Data = new List<ExamResponse>()
+                });
+            }
+
+            // Filter search results by title or description
+            var filtered = allExams?
+                .Where(e => e.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                            e.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                .ToList() ?? new List<ExamResponse>();
+
+            return Ok(new ResponseResult<List<ExamResponse>>
+            {
+                Success = true,
+                Message = "Success",
+                Data = filtered
+            });
+        }
+
+        // For STUDENT: search exams in their classes
+        if (User.IsInRole("STUDENT"))
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Unauthorized(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = false,
+                    Message = "Student not found"
+                });
+            }
+
+            var student = await _studentRepository.GetByUserIdAsync(userId.Value);
+            if (student == null)
+            {
+                return Unauthorized(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = false,
+                    Message = "Student profile not found"
+                });
+            }
+
+            var classIds = (await _studentRepository.GetStudentClassesAsync(student.Id))
+                .Select(cs => cs.ClassId)
+                .Distinct()
+                .ToList();
+
+            var allExams = new List<ExamResponse>();
+            foreach (var classId in classIds)
+            {
+                var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
+                foreach (var examClass in examClasses)
+                {
+                    var exam = await _examRepository.GetByIdAsync(examClass.ExamId);
+                    if (exam != null)
+                    {
+                        allExams.Add(new ExamResponse
+                        {
+                            Id = exam.Id,
+                            Title = exam.Title,
+                            SubjectId = exam.SubjectId,
+                            SubjectName = exam.Subject?.Name ?? string.Empty,
+                            CreatedBy = exam.CreatedBy,
+                            DurationMinutes = exam.DurationMinutes,
+                            StartTime = exam.StartTime,
+                            EndTime = exam.EndTime,
+                            Description = exam.Description,
+                            Status = exam.Status,
+                            CreatedAt = exam.CreatedAt
+                        });
+                    }
+                }
+            }
+
+            // Filter search results
+            var filtered = allExams
+                .Where(e => e.Title.Contains(searchTerm, StringComparison.OrdinalIgnoreCase) ||
+                            e.Description.Contains(searchTerm, StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            return Ok(new ResponseResult<List<ExamResponse>>
+            {
+                Success = true,
+                Message = "Success",
+                Data = filtered
+            });
+        }
+
+        return Unauthorized(new ResponseResult<List<ExamResponse>>
+        {
+            Success = false,
+            Message = "Unauthorized"
         });
     }
 
     /// <summary>
     /// Get exams by teacher
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpGet("teacher/{teacherId}")]
     public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetByTeacher(long teacherId)
     {
         _logger.LogInformation("Getting exams by teacher: {TeacherId}", teacherId);
+        
+        // TEACHER can only access their own exams
+        if (User.IsInRole("TEACHER"))
+        {
+            var currentTeacher = await GetCurrentTeacherAsync();
+            if (currentTeacher == null || currentTeacher.Id != teacherId)
+            {
+                return Forbid();
+            }
+        }
         
         var (success, message, data) = await _examService.GetExamsByTeacherAsync(teacherId);
         
@@ -131,7 +445,7 @@ public class ExamsController : ControllerBase
 
         return Ok(new ResponseResult<List<ExamResponse>>
         {
-            Success = success,
+            Success = true,
             Message = message,
             Data = data
         });
@@ -140,27 +454,70 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Get exams by subject
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpGet("subject/{subjectId}")]
     public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetBySubject(long subjectId)
     {
         _logger.LogInformation("Getting exams by subject: {SubjectId}", subjectId);
         
-        var (success, message, data) = await _examService.GetExamsBySubjectAsync(subjectId);
-        
-        if (!success)
+        // For ADMIN: return all exams for the subject
+        if (User.IsInRole("ADMIN"))
         {
-            return BadRequest(new ResponseResult<object>
+            var (success, message, data) = await _examService.GetExamsBySubjectAsync(subjectId);
+            if (!success)
             {
-                Success = false,
-                Message = message
+                return BadRequest(new ResponseResult<object>
+                {
+                    Success = false,
+                    Message = message
+                });
+            }
+            return Ok(new ResponseResult<List<ExamResponse>>
+            {
+                Success = true,
+                Message = message,
+                Data = data
             });
         }
 
-        return Ok(new ResponseResult<List<ExamResponse>>
+        // For TEACHER: return only their exams for the subject
+        if (User.IsInRole("TEACHER"))
         {
-            Success = success,
-            Message = message,
-            Data = data
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+            {
+                return Unauthorized(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = false,
+                    Message = "Teacher profile not found"
+                });
+            }
+
+            var (success, message, allExams) = await _examService.GetExamsByTeacherAsync(teacher.Id);
+            if (!success || allExams == null)
+            {
+                return Ok(new ResponseResult<List<ExamResponse>>
+                {
+                    Success = true,
+                    Message = "Success",
+                    Data = new List<ExamResponse>()
+                });
+            }
+
+            // Filter by subject
+            var filtered = allExams.Where(e => e.SubjectId == subjectId).ToList();
+            return Ok(new ResponseResult<List<ExamResponse>>
+            {
+                Success = true,
+                Message = "Success",
+                Data = filtered
+            });
+        }
+
+        return Unauthorized(new ResponseResult<List<ExamResponse>>
+        {
+            Success = false,
+            Message = "Unauthorized"
         });
     }
 
@@ -171,6 +528,44 @@ public class ExamsController : ControllerBase
     [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetByClass(long classId)
     {
+        // For TEACHER: verify they teach this class
+        if (User.IsInRole("TEACHER"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+            {
+                return Forbid();
+            }
+
+            var assignments = await _teachingAssignmentRepository.GetByClassAsync(classId);
+            if (!assignments.Any(a => a.TeacherId == teacher.Id))
+            {
+                return Forbid();
+            }
+        }
+
+        // For STUDENT: verify they are enrolled in this class
+        if (User.IsInRole("STUDENT"))
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Forbid();
+            }
+
+            var student = await _studentRepository.GetByUserIdAsync(userId.Value);
+            if (student == null)
+            {
+                return Forbid();
+            }
+
+            var studentClasses = await _studentRepository.GetStudentClassesAsync(student.Id);
+            if (!studentClasses.Any(cs => cs.ClassId == classId))
+            {
+                return Forbid();
+            }
+        }
+
         var examClasses = await _examClassRepository.GetClassExamsAsync(classId);
         var exams = new List<ExamResponse>();
 
@@ -211,6 +606,22 @@ public class ExamsController : ControllerBase
     [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetAvailableForStudent(long studentId)
     {
+        // STUDENT can only access their own available exams
+        if (User.IsInRole("STUDENT"))
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Forbid();
+            }
+
+            var currentStudent = await _studentRepository.GetByUserIdAsync(userId.Value);
+            if (currentStudent == null || currentStudent.Id != studentId)
+            {
+                return Forbid();
+            }
+        }
+
         var student = await _studentRepository.GetByIdAsync(studentId);
         if (student == null)
             return NotFound(new ResponseResult<object> { Success = false, Message = "Student not found" });
@@ -283,6 +694,22 @@ public class ExamsController : ControllerBase
     [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     public async Task<ActionResult<ResponseResult<List<ExamResponse>>>> GetUpcomingForStudent(long studentId)
     {
+        // STUDENT can only access their own upcoming exams
+        if (User.IsInRole("STUDENT"))
+        {
+            var userId = GetCurrentUserId();
+            if (!userId.HasValue)
+            {
+                return Forbid();
+            }
+
+            var currentStudent = await _studentRepository.GetByUserIdAsync(userId.Value);
+            if (currentStudent == null || currentStudent.Id != studentId)
+            {
+                return Forbid();
+            }
+        }
+
         var student = await _studentRepository.GetByIdAsync(studentId);
         if (student == null)
             return NotFound(new ResponseResult<object> { Success = false, Message = "Student not found" });
@@ -337,6 +764,7 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Create new exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost]
     public async Task<ActionResult<ResponseResult<ExamResponse>>> Create([FromBody] CreateExamRequest request)
     {
@@ -349,6 +777,20 @@ public class ExamsController : ControllerBase
                 Success = false,
                 Message = "Invalid request"
             });
+        }
+
+        if (User.IsInRole("TEACHER") && !User.IsInRole("ADMIN"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+                return Forbid();
+
+            // Prevent request spoofing: teacher can only create with own identity.
+            request.CreatedBy = teacher.Id;
+
+            var canTeachSubject = await TeacherCanTeachSubjectAsync(teacher.Id, request.SubjectId);
+            if (!canTeachSubject)
+                return Forbid();
         }
 
         var (success, message, data) = await _examService.CreateExamAsync(request);
@@ -373,6 +815,7 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Update exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPut("{id}")]
     public async Task<ActionResult<ResponseResult<ExamResponse>>> Update(long id, [FromBody] UpdateExamRequest request)
     {
@@ -385,6 +828,24 @@ public class ExamsController : ControllerBase
                 Success = false,
                 Message = "Invalid request"
             });
+        }
+
+        var (getSuccess, _, existingExam) = await _examService.GetExamByIdAsync(id);
+        if (!getSuccess || existingExam == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Exam not found" });
+
+        if (User.IsInRole("TEACHER") && !User.IsInRole("ADMIN"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+                return Forbid();
+
+            if (existingExam.CreatedBy != teacher.Id)
+                return Forbid();
+
+            var canTeachSubject = await TeacherCanTeachSubjectAsync(teacher.Id, request.SubjectId);
+            if (!canTeachSubject)
+                return Forbid();
         }
 
         var (success, message, data) = await _examService.UpdateExamAsync(id, request);
@@ -409,10 +870,22 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Delete exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpDelete("{id}")]
     public async Task<ActionResult<ResponseResult<object>>> Delete(long id)
     {
         _logger.LogInformation("Deleting exam: {ExamId}", id);
+
+        var (getSuccess, _, existingExam) = await _examService.GetExamByIdAsync(id);
+        if (!getSuccess || existingExam == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Exam not found" });
+
+        if (User.IsInRole("TEACHER") && !User.IsInRole("ADMIN"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null || existingExam.CreatedBy != teacher.Id)
+                return Forbid();
+        }
 
         var (success, message) = await _examService.DeleteExamAsync(id);
 
@@ -435,10 +908,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Configure exam settings
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/settings")]
     public async Task<ActionResult<ResponseResult<ExamSettingsResponse>>> ConfigureSettings(long examId, [FromBody] ConfigureExamSettingsRequest request)
     {
         _logger.LogInformation("Configuring settings for exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message, data) = await _examService.ConfigureSettingsAsync(examId, request);
 
@@ -462,6 +939,7 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Get exam settings
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpGet("{examId}/settings")]
     public async Task<ActionResult<ResponseResult<ExamSettingsResponse>>> GetSettings(long examId)
     {
@@ -489,10 +967,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Activate exam (transition from DRAFT to ACTIVE)
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/activate")]
     public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> ActivateExam(long examId)
     {
         _logger.LogInformation("Activating exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message, data) = await _examService.ActivateExamAsync(examId);
 
@@ -516,10 +998,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Close exam (transition from ACTIVE to CLOSED)
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/close")]
     public async Task<ActionResult<ResponseResult<object>>> CloseExam(long examId)
     {
         _logger.LogInformation("Closing exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message) = await _examService.CloseExamAsync(examId);
 
@@ -542,10 +1028,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Change exam status
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/status")]
     public async Task<ActionResult<ResponseResult<object>>> ChangeStatus(long examId, [FromBody] ChangeExamStatusRequest request)
     {
         _logger.LogInformation("Changing exam status: {ExamId} to {Status}", examId, request.Status);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         if (string.IsNullOrWhiteSpace(request.Status))
         {
@@ -577,10 +1067,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Publish exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/publish")]
     public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> PublishExam(long examId)
     {
         _logger.LogInformation("Publishing exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message, data) = await _examService.ActivateExamAsync(examId);
         if (!success)
@@ -592,10 +1086,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Unpublish exam (back to draft)
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/unpublish")]
     public async Task<ActionResult<ResponseResult<object>>> UnpublishExam(long examId)
     {
         _logger.LogInformation("Unpublishing exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message) = await _examService.ChangeStatusAsync(examId, "DRAFT");
         if (!success)
@@ -607,10 +1105,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Start exam (make active)
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/start")]
     public async Task<ActionResult<ResponseResult<ActivateExamResponse>>> StartExam(long examId)
     {
         _logger.LogInformation("Starting exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message, data) = await _examService.ActivateExamAsync(examId);
         if (!success)
@@ -622,10 +1124,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Stop exam (close)
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/stop")]
     public async Task<ActionResult<ResponseResult<object>>> StopExam(long examId)
     {
         _logger.LogInformation("Stopping exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (success, message) = await _examService.CloseExamAsync(examId);
         if (!success)
@@ -637,10 +1143,14 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Duplicate exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/duplicate")]
     public async Task<ActionResult<ResponseResult<DuplicateExamResponse>>> DuplicateExam(long examId)
     {
         _logger.LogInformation("Duplicating exam: {ExamId}", examId);
+
+        if (!await CurrentTeacherOwnsExamAsync(examId))
+            return Forbid();
 
         var (getSuccess, getMessage, original) = await _examService.GetExamByIdAsync(examId);
         if (!getSuccess || original == null)
@@ -678,6 +1188,7 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Preview exam with questions
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpGet("{examId}/preview")]
     public async Task<ActionResult<ResponseResult<ExamPreviewResponse>>> PreviewExam(long examId)
     {
@@ -716,10 +1227,31 @@ public class ExamsController : ControllerBase
     /// <summary>
     /// Assign class to exam
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{examId}/assign-class")]
     public async Task<ActionResult<ResponseResult<ExamClassResponse>>> AssignClass(long examId, [FromBody] AssignClassToExamRequest request)
     {
         _logger.LogInformation("Assigning class {ClassId} to exam {ExamId}", request.ClassId, examId);
+
+        var exam = await _examRepository.GetByIdAsync(examId);
+        if (exam == null)
+            return NotFound(new ResponseResult<object> { Success = false, Message = "Exam not found" });
+
+        if (User.IsInRole("TEACHER") && !User.IsInRole("ADMIN"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+                return Forbid();
+
+            // Teacher must be exam owner and assigned to this class-subject.
+            if (exam.CreatedBy != teacher.Id)
+                return Forbid();
+
+            var assignment = await _teachingAssignmentRepository
+                .GetByClassTeacherSubjectAsync(request.ClassId, teacher.Id, exam.SubjectId);
+            if (assignment == null)
+                return Forbid();
+        }
 
         var (success, message, data) = await _examClassService.AssignClassToExamAsync(examId, request.ClassId);
         if (!success)

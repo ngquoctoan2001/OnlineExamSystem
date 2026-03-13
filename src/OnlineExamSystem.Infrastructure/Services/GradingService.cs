@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Domain.Entities;
 using OnlineExamSystem.Infrastructure.Repositories;
@@ -14,6 +15,8 @@ public class GradingService : IGradingService
     private readonly IQuestionOptionRepository _optionRepo;
     private readonly IStudentRepository _studentRepo;
     private readonly IExamRepository _examRepo;
+    private readonly IExamSettingsRepository _examSettingsRepo;
+    private readonly INotificationService _notificationService;
     private readonly IActivityLogService _activityLog;
     private readonly ILogger<GradingService> _logger;
 
@@ -25,6 +28,8 @@ public class GradingService : IGradingService
         IQuestionOptionRepository optionRepo,
         IStudentRepository studentRepo,
         IExamRepository examRepo,
+        IExamSettingsRepository examSettingsRepo,
+        INotificationService notificationService,
         IActivityLogService activityLog,
         ILogger<GradingService> logger)
     {
@@ -35,6 +40,8 @@ public class GradingService : IGradingService
         _optionRepo = optionRepo;
         _studentRepo = studentRepo;
         _examRepo = examRepo;
+        _examSettingsRepo = examSettingsRepo;
+        _notificationService = notificationService;
         _activityLog = activityLog;
         _logger = logger;
     }
@@ -100,10 +107,16 @@ public class GradingService : IGradingService
                 results.Add(MapToGradingResponse(graded, eq, true));
             }
 
-            attempt.Score = totalScore;
+            var settings = await _examSettingsRepo.GetByExamIdAsync(attempt.ExamId);
+            attempt.Score = ApplyLatePenalty(totalScore, attempt, settings);
             await _attemptRepo.UpdateAsync(attempt);
 
             return (true, "Auto-grading complete", results);
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict when auto-grading attempt {AttemptId}", attemptId);
+            return (false, "Attempt was modified by another process. Please retry.", null);
         }
         catch (Exception ex)
         {
@@ -263,6 +276,13 @@ public class GradingService : IGradingService
                 result = await _gradingRepo.UpdateAsync(existing);
             }
 
+            await _activityLog.LogAsync(
+                gradedBy,
+                "GRADE_UPDATED",
+                "GradingResult",
+                result.Id,
+                $"AttemptId: {attemptId}, QuestionId: {questionId}, Score: {result.Score}");
+
             return (true, "Question graded", MapToGradingResponse(result, examQuestion, false));
         }
         catch (Exception ex)
@@ -313,6 +333,14 @@ public class GradingService : IGradingService
                     existing.GradedAt = DateTime.UtcNow;
                     result = await _gradingRepo.UpdateAsync(existing);
                 }
+
+                await _activityLog.LogAsync(
+                    gradedBy,
+                    "GRADE_UPDATED",
+                    "GradingResult",
+                    result.Id,
+                    $"AttemptId: {attemptId}, QuestionId: {item.QuestionId}, Score: {result.Score}");
+
                 results.Add(MapToGradingResponse(result, examQuestion, false));
             }
 
@@ -338,12 +366,18 @@ public class GradingService : IGradingService
 
             var gradingResults = await _gradingRepo.GetByAttemptIdAsync(attemptId);
             var totalScore = gradingResults.Sum(g => g.Score);
+            var settings = await _examSettingsRepo.GetByExamIdAsync(attempt.ExamId);
 
             attempt.Status = "GRADED";
-            attempt.Score = totalScore;
+            attempt.Score = ApplyLatePenalty(totalScore, attempt, settings);
             await _attemptRepo.UpdateAsync(attempt);
 
             return (true, "Attempt marked as graded");
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict when marking graded attempt {AttemptId}", attemptId);
+            return (false, "Attempt was modified by another process. Please reload and try again.");
         }
         catch (Exception ex)
         {
@@ -367,6 +401,21 @@ public class GradingService : IGradingService
             await _attemptRepo.UpdateAsync(attempt);
             await _activityLog.LogAsync(null, "GRADE_PUBLISHED", "ExamAttempt", attemptId);
 
+            var student = await _studentRepo.GetByIdAsync(attempt.StudentId);
+            var exam = await _examRepo.GetByIdAsync(attempt.ExamId);
+            if (student != null)
+            {
+                var title = "Ket qua bai thi da duoc cong bo";
+                var message = $"Bai thi '{exam?.Title ?? "(Unknown Exam)"}' da co ket qua. Diem hien tai: {attempt.Score?.ToString("0.##") ?? "N/A"}.";
+                await _notificationService.CreateAsync(
+                    student.UserId,
+                    "GRADE_PUBLISHED",
+                    title,
+                    message,
+                    attemptId,
+                    "ExamAttempt");
+            }
+
             return (true, "Result published", new PublishResultResponse
             {
                 AttemptId = attemptId,
@@ -374,6 +423,11 @@ public class GradingService : IGradingService
                 Status = attempt.Status,
                 Published = true
             });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict when publishing result for attempt {AttemptId}", attemptId);
+            return (false, "Attempt was modified by another process. Please reload and retry.", null);
         }
         catch (Exception ex)
         {
@@ -430,4 +484,20 @@ public class GradingService : IGradingService
         GradedAt = g.GradedAt,
         IsAutoGraded = isAutoGraded
     };
+
+    private static decimal ApplyLatePenalty(decimal rawScore, ExamAttempt attempt, ExamSetting? settings)
+    {
+        if (!attempt.IsLateSubmission)
+            return rawScore;
+
+        var penaltyPercent = attempt.LatePenaltyPercent > 0m
+            ? attempt.LatePenaltyPercent
+            : settings?.LatePenaltyPercent ?? 0m;
+
+        penaltyPercent = Math.Clamp(penaltyPercent, 0m, 100m);
+        if (penaltyPercent <= 0m)
+            return rawScore;
+
+        return decimal.Round(rawScore * (1m - (penaltyPercent / 100m)), 2, MidpointRounding.AwayFromZero);
+    }
 }

@@ -17,6 +17,17 @@ public class CreateExamRequest
     [Range(1, 600)]
     public int DurationMinutes { get; set; }
 
+    [Range(0, 100)]
+    public int MaxAttemptsAllowed { get; set; } = 1;
+
+    [Range(0, 525600)]
+    public int MinutesBetweenRetakes { get; set; } = 0;
+
+    public bool AllowRetakeIfPassed { get; set; } = false;
+
+    [Range(0, 100)]
+    public decimal PassingScore { get; set; } = 50m;
+
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
 
@@ -34,6 +45,10 @@ public class UpdateExamRequest
     public string Title { get; set; } = string.Empty;
     public long SubjectId { get; set; }
     public int DurationMinutes { get; set; }
+    public int MaxAttemptsAllowed { get; set; } = 1;
+    public int MinutesBetweenRetakes { get; set; } = 0;
+    public bool AllowRetakeIfPassed { get; set; } = false;
+    public decimal PassingScore { get; set; } = 50m;
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public string Description { get; set; } = string.Empty;
@@ -51,6 +66,10 @@ public class ExamResponse
     public string SubjectName { get; set; } = string.Empty;
     public long CreatedBy { get; set; }
     public int DurationMinutes { get; set; }
+    public int MaxAttemptsAllowed { get; set; }
+    public int MinutesBetweenRetakes { get; set; }
+    public bool AllowRetakeIfPassed { get; set; }
+    public decimal PassingScore { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
     public string Description { get; set; } = string.Empty;
@@ -81,6 +100,9 @@ public class ConfigureExamSettingsRequest
     public bool ShuffleAnswers { get; set; } = false;
     public bool ShowResultImmediately { get; set; } = false;
     public bool AllowReview { get; set; } = false;
+    public bool AllowLateSubmission { get; set; } = false;
+    public int GracePeriodMinutes { get; set; } = 0;
+    public decimal LatePenaltyPercent { get; set; } = 0;
 }
 
 /// <summary>
@@ -94,6 +116,9 @@ public class ExamSettingsResponse
     public bool ShuffleAnswers { get; set; }
     public bool ShowResultImmediately { get; set; }
     public bool AllowReview { get; set; }
+    public bool AllowLateSubmission { get; set; }
+    public int GracePeriodMinutes { get; set; }
+    public decimal LatePenaltyPercent { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 }

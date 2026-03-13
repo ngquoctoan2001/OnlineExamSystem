@@ -37,6 +37,12 @@ public class NotificationService : INotificationService
         return (true, "OK", notifications.Select(MapToResponse).ToList());
     }
 
+    public async Task<NotificationResponse?> GetByIdAsync(long id)
+    {
+        var notification = await _repo.GetByIdAsync(id);
+        return notification == null ? null : MapToResponse(notification);
+    }
+
     public async Task<(bool Success, string Message)> DeleteAsync(long id)
     {
         var result = await _repo.DeleteAsync(id);

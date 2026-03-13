@@ -4,6 +4,7 @@ using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
 using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
+using System.Security.Claims;
 
 namespace OnlineExamSystem.API.Controllers;
 
@@ -16,18 +17,42 @@ public class QuestionsController : ControllerBase
 {
     private readonly IQuestionService _questionService;
     private readonly IQuestionOptionRepository _questionOptionRepository;
+    private readonly ITeacherRepository _teacherRepository;
+    private readonly ITeachingAssignmentRepository _teachingAssignmentRepository;
     private readonly ILogger<QuestionsController> _logger;
 
     public QuestionsController(
         IQuestionService questionService,
         IQuestionOptionRepository questionOptionRepository,
+        ITeacherRepository teacherRepository,
+        ITeachingAssignmentRepository teachingAssignmentRepository,
         ILogger<QuestionsController> logger)
     {
         _questionService = questionService;
         _questionOptionRepository = questionOptionRepository;
+        _teacherRepository = teacherRepository;
+        _teachingAssignmentRepository = teachingAssignmentRepository;
         _logger = logger;
     }
 
+    private long? GetCurrentUserId()
+    {
+        var claim = User.FindFirst("userId")?.Value
+                    ?? User.FindFirst("UserId")?.Value
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return long.TryParse(claim, out var id) ? id : null;
+    }
+
+    private async Task<Teacher?> GetCurrentTeacherAsync()
+    {
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue) return null;
+        return await _teacherRepository.GetByUserIdAsync(userId.Value);
+    }
+
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost]
     public async Task<ActionResult<ResponseResult<QuestionDetailResponse>>> CreateQuestion([FromBody] CreateQuestionRequest request)
     {
@@ -88,15 +113,47 @@ public class QuestionsController : ControllerBase
     }
 
     [HttpGet("subject/{subjectId}")]
-    public async Task<ActionResult<ResponseResult<List<QuestionResponse>>>> GetBySubject(long subjectId)
+    public async Task<ActionResult<ResponseResult<List<QuestionResponse>>>> GetBySubject(long subjectId, [FromQuery] long? createdByTeacherId = null)
     {
-        var (success, message, data) = await _questionService.GetQuestionsBySubjectAsync(subjectId);
-        return Ok(new ResponseResult<List<QuestionResponse>> { Success = success, Message = message, Data = data });
+        // If teacher is requesting and they haven't specified a teacher ID, filter by their own ID
+        if (!createdByTeacherId.HasValue && User.IsInRole("TEACHER"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher != null)
+            {
+                createdByTeacherId = teacher.Id;
+            }
+        }
+
+        // If a teacher ID is specified, filter by that teacher
+        if (createdByTeacherId.HasValue)
+        {
+            var (success, message, data) = await _questionService.GetQuestionsByTeacherAndSubjectAsync(createdByTeacherId.Value, subjectId);
+            return Ok(new ResponseResult<List<QuestionResponse>> { Success = success, Message = message, Data = data });
+        }
+
+        // Otherwise, return all questions from this subject
+        var (allSuccess, allMessage, allData) = await _questionService.GetQuestionsBySubjectAsync(subjectId);
+        return Ok(new ResponseResult<List<QuestionResponse>> { Success = allSuccess, Message = allMessage, Data = allData });
     }
 
-    [HttpGet("difficulty/{difficulty}")]
-    public async Task<ActionResult<ResponseResult<List<QuestionResponse>>>> GetByDifficulty(string difficulty)
+    [Authorize(Roles = "ADMIN,TEACHER")]
+    [HttpGet("teacher/my-questions")]
+    public async Task<ActionResult<ResponseResult<List<QuestionResponse>>>> GetMyQuestions()
     {
+        var teacher = await GetCurrentTeacherAsync();
+        if (teacher == null)
+        {
+            return Unauthorized(new ResponseResult<List<QuestionResponse>>
+            {
+                Success = false,
+                Message = "Teacher profile not found"
+            });
+        }
+
+        var (success, message, data) = await _questionService.GetQuestionsByTeacherAsync(teacher.Id);
+        return Ok(new ResponseResult<List<QuestionResponse>> { Success = success, Message = message, Data = data });
+    }
         var (success, message, data) = await _questionService.GetQuestionsByDifficultyAsync(difficulty);
         if (!success)
             return BadRequest(new ResponseResult<List<QuestionResponse>> { Success = false, Message = message });
@@ -111,6 +168,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<List<QuestionResponse>> { Success = success, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPut("{id}")]
     public async Task<ActionResult<ResponseResult<QuestionDetailResponse>>> UpdateQuestion(long id, [FromBody] UpdateQuestionRequest request)
     {
@@ -124,6 +182,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<QuestionDetailResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{id}/publish")]
     public async Task<ActionResult<ResponseResult<string>>> PublishQuestion(long id)
     {
@@ -134,6 +193,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<string> { Success = true, Message = message, Data = "Question published" });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{id}/unpublish")]
     public async Task<ActionResult<ResponseResult<string>>> UnpublishQuestion(long id)
     {
@@ -144,6 +204,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<string> { Success = true, Message = message, Data = "Question unpublished" });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpDelete("{id}")]
     public async Task<ActionResult<ResponseResult<string>>> DeleteQuestion(long id)
     {
@@ -171,6 +232,7 @@ public class QuestionsController : ControllerBase
         });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{id}/options")]
     public async Task<ActionResult<ResponseResult<QuestionOptionResponse>>> AddOption(long id, [FromBody] CreateQuestionOptionRequest request)
     {
@@ -184,6 +246,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<QuestionOptionResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPut("{id}/options/{optionId}")]
     public async Task<ActionResult<ResponseResult<QuestionOptionResponse>>> UpdateOption(long id, long optionId, [FromBody] CreateQuestionOptionRequest request)
     {
@@ -197,6 +260,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<QuestionOptionResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpDelete("{id}/options/{optionId}")]
     public async Task<ActionResult<ResponseResult<string>>> DeleteOption(long id, long optionId)
     {
@@ -219,6 +283,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<List<TagResponse>> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPost("{id}/tags/{tagId}")]
     public async Task<ActionResult<ResponseResult<string>>> AssignTag(long id, long tagId)
     {
@@ -229,6 +294,7 @@ public class QuestionsController : ControllerBase
         return Ok(new ResponseResult<string> { Success = true, Message = message, Data = "Tag assigned" });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpDelete("{id}/tags/{tagId}")]
     public async Task<ActionResult<ResponseResult<string>>> RemoveTag(long id, long tagId)
     {
@@ -244,6 +310,7 @@ public class QuestionsController : ControllerBase
     /// <summary>
     /// Update question option by option ID
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpPut("options/{optionId}")]
     public async Task<ActionResult<ResponseResult<QuestionOptionResponse>>> UpdateOptionByOptionId(long optionId, [FromBody] CreateQuestionOptionRequest request)
     {
@@ -265,6 +332,7 @@ public class QuestionsController : ControllerBase
     /// <summary>
     /// Delete question option by option ID
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER")]
     [HttpDelete("options/{optionId}")]
     public async Task<ActionResult<ResponseResult<string>>> DeleteOptionByOptionId(long optionId)
     {

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using OfficeOpenXml;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Application.DTOs.Common;
+using OnlineExamSystem.Infrastructure.Repositories;
 using OnlineExamSystem.Infrastructure.Services;
 
 /// <summary>
@@ -21,22 +22,48 @@ public class StudentsController : ControllerBase
     private readonly IStudentService _studentService;
     private readonly IStatisticsService _statisticsService;
     private readonly IExamAttemptService _examAttemptService;
+    private readonly ITeacherRepository _teacherRepository;
+    private readonly ITeachingAssignmentRepository _teachingAssignmentRepository;
+    private readonly IClassRepository _classRepository;
     private readonly ILogger<StudentsController> _logger;
 
     public StudentsController(
         IStudentService studentService,
         IStatisticsService statisticsService,
         IExamAttemptService examAttemptService,
+        ITeacherRepository teacherRepository,
+        ITeachingAssignmentRepository teachingAssignmentRepository,
+        IClassRepository classRepository,
         ILogger<StudentsController> logger)
     {
         _studentService = studentService;
         _statisticsService = statisticsService;
         _examAttemptService = examAttemptService;
+        _teacherRepository = teacherRepository;
+        _teachingAssignmentRepository = teachingAssignmentRepository;
+        _classRepository = classRepository;
         _logger = logger;
     }
 
+    private long? GetCurrentUserId()
+    {
+        var claim = User.FindFirst("userId")?.Value
+                    ?? User.FindFirst("UserId")?.Value
+                    ?? User.FindFirst("sub")?.Value
+                    ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+
+        return long.TryParse(claim, out var id) ? id : null;
+    }
+
+    private async Task<Teacher?> GetCurrentTeacherAsync()
+    {
+        var userId = GetCurrentUserId();
+        if (!userId.HasValue) return null;
+        return await _teacherRepository.GetByUserIdAsync(userId.Value);
+    }
+
     /// <summary>
-    /// Get all students
+    /// Get all students (filtered by user role: Admin sees all, Teachers see only their class students, Students see themselves)
     /// </summary>
     [HttpGet]
     [Authorize(Roles = "ADMIN,TEACHER")]
@@ -44,13 +71,75 @@ public class StudentsController : ControllerBase
     {
         _logger.LogInformation("Getting all students: page={Page}, pageSize={PageSize}", page, pageSize);
         
-        var (success, message, data) = await _studentService.GetAllStudentsAsync(page, pageSize);
-        
-        return Ok(new ResponseResult<StudentListResponse>
+        // For ADMIN: show all students
+        if (User.IsInRole("ADMIN"))
         {
-            Success = success,
-            Message = message,
-            Data = data
+            var (success, message, data) = await _studentService.GetAllStudentsAsync(page, pageSize);
+            return Ok(new ResponseResult<StudentListResponse>
+            {
+                Success = success,
+                Message = message,
+                Data = data
+            });
+        }
+
+        // For TEACHER: show only students in their assigned classes
+        if (User.IsInRole("TEACHER"))
+        {
+            var teacher = await GetCurrentTeacherAsync();
+            if (teacher == null)
+            {
+                return Unauthorized(new ResponseResult<StudentListResponse>
+                {
+                    Success = false,
+                    Message = "Teacher profile not found"
+                });
+            }
+
+            // Get all classes assigned to this teacher
+            var teachingAssignments = await _teachingAssignmentRepository.GetByTeacherAsync(teacher.Id);
+            var classIds = teachingAssignments.Select(a => a.ClassId).Distinct().ToList();
+
+            var allStudents = new List<StudentResponse>();
+            foreach (var classId in classIds)
+            {
+                var classStudents = await _classRepository.GetClassStudentsAsync(classId);
+                foreach (var classStudent in classStudents)
+                {
+                    var student = await _studentService.GetStudentByIdAsync(classStudent.StudentId);
+                    if (student.Success && student.Data != null)
+                    {
+                        allStudents.Add(student.Data);
+                    }
+                }
+            }
+
+            // Remove duplicates and apply pagination
+            var distinctStudents = allStudents.DistinctBy(s => s!.Id).OrderBy(s => s!.User?.FullName).ToList();
+            var totalCount = distinctStudents.Count;
+            var skip = (page - 1) * pageSize;
+            var paginatedStudents = distinctStudents.Skip(skip).Take(pageSize).ToList();
+
+            var response = new StudentListResponse
+            {
+                Items = paginatedStudents,
+                TotalCount = totalCount,
+                Page = page,
+                PageSize = pageSize
+            };
+
+            return Ok(new ResponseResult<StudentListResponse>
+            {
+                Success = true,
+                Message = "Success",
+                Data = response
+            });
+        }
+
+        return Unauthorized(new ResponseResult<StudentListResponse>
+        {
+            Success = false,
+            Message = "Unauthorized"
         });
     }
 

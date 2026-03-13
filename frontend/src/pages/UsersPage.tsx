@@ -358,8 +358,8 @@ export default function UsersPage() {
 
       {/* Reset Password Modal */}
       {resetPwdTarget && (
-        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setResetPwdTarget(null)}>
-          <div className="modal" style={{ maxWidth: 400 }}>
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setResetPwdTarget(null)} style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 1000 }}>
+          <div className="modal" style={{ maxWidth: 400, position: 'relative' }}>
             <div className="modal-header">
               <h3>Đặt lại mật khẩu</h3>
               <button className="btn btn-icon" onClick={() => setResetPwdTarget(null)}><span className="material-icons">close</span></button>
@@ -376,12 +376,15 @@ export default function UsersPage() {
                   value={resetPwdValue}
                   onChange={e => setResetPwdValue(e.target.value)}
                   placeholder="Ít nhất 6 ký tự"
+                  autoFocus
                 />
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-secondary" onClick={() => setResetPwdTarget(null)}>Hủy</button>
-              <button className="btn btn-primary" onClick={handleResetPwd}>Đặt lại</button>
+              <button className="btn btn-primary" onClick={handleResetPwd} disabled={saving}>
+                {saving ? 'Đang lưu...' : 'Đặt lại'}
+              </button>
             </div>
           </div>
         </div>

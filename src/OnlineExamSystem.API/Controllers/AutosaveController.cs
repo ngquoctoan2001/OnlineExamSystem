@@ -25,6 +25,7 @@ public class AutosaveController : ControllerBase
     /// <summary>
     /// Save autosave data for an exam attempt
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpPost]
     public async Task<ActionResult<ResponseResult<AutosaveResponse>>> SaveAutosave([FromBody] AutosaveRequest request)
     {
@@ -64,6 +65,7 @@ public class AutosaveController : ControllerBase
     /// <summary>
     /// Get autosave data for an attempt
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpGet("{attemptId}")]
     public async Task<ActionResult<ResponseResult<List<AnswerResponse>>>> GetAutosave(long attemptId)
     {
@@ -89,6 +91,7 @@ public class AutosaveController : ControllerBase
     /// <summary>
     /// Delete autosave data for an attempt
     /// </summary>
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpDelete("{attemptId}")]
     public async Task<ActionResult<ResponseResult<object>>> DeleteAutosave(long attemptId)
     {

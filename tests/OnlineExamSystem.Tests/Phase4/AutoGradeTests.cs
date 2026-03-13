@@ -13,6 +13,8 @@ public class AutoGradeTests
 {
     private readonly Mock<IExamAttemptRepository> _attemptRepoMock = new();
     private readonly Mock<IExamRepository> _examRepoMock = new();
+    private readonly Mock<IExamSettingsRepository> _examSettingsRepoMock = new();
+    private readonly Mock<IExamClassRepository> _examClassRepoMock = new();
     private readonly Mock<IStudentRepository> _studentRepoMock = new();
     private readonly Mock<IExamViolationRepository> _violationRepoMock = new();
     private readonly Mock<IAnswerRepository> _answerRepoMock = new();
@@ -28,6 +30,8 @@ public class AutoGradeTests
         _service = new ExamAttemptService(
             _attemptRepoMock.Object,
             _examRepoMock.Object,
+            _examSettingsRepoMock.Object,
+            _examClassRepoMock.Object,
             _studentRepoMock.Object,
             _violationRepoMock.Object,
             _answerRepoMock.Object,
@@ -36,6 +40,18 @@ public class AutoGradeTests
             _optionRepoMock.Object,
             _activityLogMock.Object,
             _loggerMock.Object);
+    }
+
+    private void SetupExamWindow(long examId = 10)
+    {
+        _examRepoMock.Setup(r => r.GetByIdAsync(examId)).ReturnsAsync(new Exam
+        {
+            Id = examId,
+            Status = "ACTIVE",
+            StartTime = DateTime.UtcNow.AddHours(-1),
+            EndTime = DateTime.UtcNow.AddHours(1),
+            DurationMinutes = 120
+        });
     }
 
     [Fact]
@@ -63,7 +79,7 @@ public class AutoGradeTests
     [Fact]
     public async Task Submit_WithMcqQuestion_AutoGradesCorrectly()
     {
-        var attempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "IN_PROGRESS" };
+        var attempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "IN_PROGRESS", StartTime = DateTime.UtcNow };
         var correctOption = new QuestionOption { Id = 20, QuestionId = 5, IsCorrect = true };
         var question = new Question
         {
@@ -79,6 +95,7 @@ public class AutoGradeTests
         var updatedAttempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "SUBMITTED", Score = 2 };
 
         _attemptRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(attempt);
+    SetupExamWindow(10);
         _attemptRepoMock.Setup(r => r.UpdateAsync(It.IsAny<ExamAttempt>())).ReturnsAsync(updatedAttempt);
         _examQuestionRepoMock.Setup(r => r.GetExamQuestionsAsync(10)).ReturnsAsync(new List<ExamQuestion> { examQuestion });
         _answerRepoMock.Setup(r => r.GetByAttemptIdAsync(1)).ReturnsAsync(new List<Answer> { answer });
@@ -96,7 +113,7 @@ public class AutoGradeTests
     [Fact]
     public async Task Submit_WithMcqWrongAnswer_GivesZeroScore()
     {
-        var attempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "IN_PROGRESS" };
+        var attempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "IN_PROGRESS", StartTime = DateTime.UtcNow };
         var correctOption = new QuestionOption { Id = 20, QuestionId = 5, IsCorrect = true };
         var question = new Question { Id = 5, QuestionType = new QuestionType { Name = "MCQ" } };
         var examQuestion = new ExamQuestion { Id = 1, ExamId = 10, QuestionId = 5, MaxScore = 2, Question = question };
@@ -108,6 +125,7 @@ public class AutoGradeTests
         };
 
         _attemptRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(attempt);
+    SetupExamWindow(10);
         _attemptRepoMock.Setup(r => r.UpdateAsync(It.IsAny<ExamAttempt>())).ReturnsAsync(attempt);
         _examQuestionRepoMock.Setup(r => r.GetExamQuestionsAsync(10)).ReturnsAsync(new List<ExamQuestion> { examQuestion });
         _answerRepoMock.Setup(r => r.GetByAttemptIdAsync(1)).ReturnsAsync(new List<Answer> { answer });

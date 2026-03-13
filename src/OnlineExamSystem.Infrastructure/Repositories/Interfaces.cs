@@ -105,6 +105,8 @@ public interface IQuestionRepository
     Task<List<Question>> GetByDifficultyAsync(string difficulty);
     Task<List<Question>> GetPublishedAsync(int page = 1, int pageSize = 20);
     Task<List<Question>> GetByQuestionTypeAsync(long questionTypeId);
+    Task<List<Question>> GetByTeacherAsync(long teacherId);
+    Task<List<Question>> GetByTeacherAndSubjectAsync(long teacherId, long subjectId);
     Task<Question> CreateAsync(Question question);
     Task<Question> UpdateAsync(Question question);
     Task<bool> DeleteAsync(long id);

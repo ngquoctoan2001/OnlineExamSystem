@@ -132,8 +132,9 @@ export default function ResultsPage() {
     return <span className="badge badge-gray">{s}</span>
   }
 
-  const passedBadge = (isPassed?: boolean) => {
-    if (isPassed == null) return <span className="badge badge-gray">—</span>
+  const passedBadge = (isPassed?: boolean, status?: string) => {
+    // If not yet graded (submitted but status not GRADED), show "—" instead of default result
+    if (status === 'SUBMITTED' || isPassed == null) return <span className="badge badge-gray">—</span>
     return isPassed
       ? <span className="badge badge-green">Đạt</span>
       : <span className="badge badge-red">Không đạt</span>
@@ -443,7 +444,7 @@ export default function ResultsPage() {
                         ? <span style={{ fontWeight: 600 }}>{a.score}<span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>/{a.totalPoints}</span></span>
                         : '—'}
                     </td>
-                    <td>{passedBadge(a.isPassed)}</td>
+                    <td>{passedBadge(a.isPassed, a.status)}</td>
                     <td>{statusLabel(a.status)}</td>
                     <td style={{ fontSize: 13 }}>{(() => {
                       if (a.startTime && a.endTime) {

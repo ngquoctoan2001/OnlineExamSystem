@@ -22,6 +22,7 @@ public class AnswersController : ControllerBase
         _logger = logger;
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpPost]
     public async Task<ActionResult<ResponseResult<AnswerResponse>>> Submit(long attemptId, [FromBody] SubmitAnswerRequest request)
     {
@@ -35,6 +36,7 @@ public class AnswersController : ControllerBase
         return Ok(new ResponseResult<AnswerResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpPut("{questionId}")]
     public async Task<ActionResult<ResponseResult<AnswerResponse>>> Update(long attemptId, long questionId, [FromBody] SubmitAnswerRequest request)
     {
@@ -48,6 +50,7 @@ public class AnswersController : ControllerBase
         return Ok(new ResponseResult<AnswerResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpGet("{questionId}")]
     public async Task<ActionResult<ResponseResult<AnswerResponse>>> GetAnswer(long attemptId, long questionId)
     {
@@ -58,6 +61,7 @@ public class AnswersController : ControllerBase
         return Ok(new ResponseResult<AnswerResponse> { Success = true, Message = message, Data = data });
     }
 
+    [Authorize(Roles = "ADMIN,TEACHER,STUDENT")]
     [HttpPost("autosave")]
     public async Task<ActionResult<ResponseResult<AnswerResponse>>> AutoSave(long attemptId, [FromBody] SubmitAnswerRequest request)
     {

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Domain.Entities;
 using OnlineExamSystem.Infrastructure.Repositories;
@@ -9,6 +10,8 @@ public class AnswerService : IAnswerService
 {
     private readonly IAnswerRepository _answerRepository;
     private readonly IExamAttemptRepository _attemptRepository;
+    private readonly IExamRepository _examRepository;
+    private readonly IExamSettingsRepository _examSettingsRepository;
     private readonly IExamQuestionRepository _examQuestionRepository;
     private readonly IQuestionRepository _questionRepository;
     private readonly IQuestionOptionRepository _optionRepository;
@@ -17,6 +20,8 @@ public class AnswerService : IAnswerService
     public AnswerService(
         IAnswerRepository answerRepository,
         IExamAttemptRepository attemptRepository,
+        IExamRepository examRepository,
+        IExamSettingsRepository examSettingsRepository,
         IExamQuestionRepository examQuestionRepository,
         IQuestionRepository questionRepository,
         IQuestionOptionRepository optionRepository,
@@ -24,6 +29,8 @@ public class AnswerService : IAnswerService
     {
         _answerRepository = answerRepository;
         _attemptRepository = attemptRepository;
+        _examRepository = examRepository;
+        _examSettingsRepository = examSettingsRepository;
         _examQuestionRepository = examQuestionRepository;
         _questionRepository = questionRepository;
         _optionRepository = optionRepository;
@@ -40,6 +47,10 @@ public class AnswerService : IAnswerService
 
             if (attempt.Status != "IN_PROGRESS")
                 return (false, "Exam attempt is not in progress", null);
+
+            var (timeValid, timeError) = await ValidateAttemptTimeWindowAsync(attempt);
+            if (!timeValid)
+                return (false, timeError!, null);
 
             var existing = await _answerRepository.GetByAttemptAndQuestionAsync(attemptId, request.QuestionId);
             if (existing != null)
@@ -72,6 +83,18 @@ public class AnswerService : IAnswerService
             var fresh = await _answerRepository.GetByAttemptAndQuestionAsync(attemptId, request.QuestionId);
             return (true, "Answer submitted", MapToResponse(fresh!));
         }
+        catch (DbUpdateException ex)
+        {
+            _logger.LogWarning(ex,
+                "Concurrent answer insert detected for attempt {AttemptId}, question {QuestionId}; retrying as update",
+                attemptId, request.QuestionId);
+
+            var existing = await _answerRepository.GetByAttemptAndQuestionAsync(attemptId, request.QuestionId);
+            if (existing == null)
+                return (false, "Concurrent submit conflict. Please retry.", null);
+
+            return await UpdateAnswerAsync(attemptId, request.QuestionId, request);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error submitting answer for attempt {AttemptId}", attemptId);
@@ -89,6 +112,10 @@ public class AnswerService : IAnswerService
 
             if (attempt.Status != "IN_PROGRESS")
                 return (false, "Exam attempt is not in progress", null);
+
+            var (timeValid, timeError) = await ValidateAttemptTimeWindowAsync(attempt);
+            if (!timeValid)
+                return (false, timeError!, null);
 
             var answer = await _answerRepository.GetByAttemptAndQuestionAsync(attemptId, questionId);
             if (answer == null)
@@ -222,4 +249,44 @@ public class AnswerService : IAnswerService
         CanvasImage = answer.CanvasImage,
         AnsweredAt = answer.AnsweredAt
     };
+
+    private async Task<(bool Valid, string? Error)> ValidateAttemptTimeWindowAsync(ExamAttempt attempt)
+    {
+        var exam = await _examRepository.GetByIdAsync(attempt.ExamId);
+        if (exam == null)
+            return (false, "Exam not found");
+
+        var settings = await _examSettingsRepository.GetByExamIdAsync(attempt.ExamId);
+
+        var now = DateTime.UtcNow;
+        if (exam.StartTime != default && now < exam.StartTime)
+            return (false, "Exam has not started yet");
+
+        var hardDeadline = GetHardDeadline(exam, attempt.StartTime);
+        if (now <= hardDeadline)
+            return (true, null);
+
+        if (settings?.AllowLateSubmission != true)
+            return (false, "Exam duration exceeded");
+
+        var gracePeriodMinutes = Math.Max(0, settings.GracePeriodMinutes);
+        var finalDeadline = hardDeadline.AddMinutes(gracePeriodMinutes);
+        if (now > finalDeadline)
+            return (false, "Late submission window has closed");
+
+        return (true, null);
+    }
+
+    private static DateTime GetHardDeadline(Exam exam, DateTime attemptStartTime)
+    {
+        var byDuration = exam.DurationMinutes > 0
+            ? attemptStartTime.AddMinutes(exam.DurationMinutes)
+            : DateTime.MaxValue;
+
+        var byExamWindow = exam.EndTime != default
+            ? exam.EndTime
+            : DateTime.MaxValue;
+
+        return byDuration < byExamWindow ? byDuration : byExamWindow;
+    }
 }

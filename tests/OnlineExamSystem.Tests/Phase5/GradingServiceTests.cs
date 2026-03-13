@@ -18,6 +18,8 @@ public class GradingServiceTests
     private readonly Mock<IQuestionOptionRepository> _optionRepoMock = new();
     private readonly Mock<IStudentRepository> _studentRepoMock = new();
     private readonly Mock<IExamRepository> _examRepoMock = new();
+    private readonly Mock<IExamSettingsRepository> _examSettingsRepoMock = new();
+    private readonly Mock<INotificationService> _notificationServiceMock = new();
     private readonly Mock<IActivityLogService> _activityLogMock = new();
     private readonly Mock<ILogger<GradingService>> _loggerMock = new();
     private readonly GradingService _service;
@@ -32,6 +34,8 @@ public class GradingServiceTests
             _optionRepoMock.Object,
             _studentRepoMock.Object,
             _examRepoMock.Object,
+                _examSettingsRepoMock.Object,
+                _notificationServiceMock.Object,
             _activityLogMock.Object,
             _loggerMock.Object);
     }
@@ -109,7 +113,7 @@ public class GradingServiceTests
     [Fact]
     public async Task MarkAsGraded_UpdatesStatusAndScore()
     {
-        var attempt = new ExamAttempt { Id = 1, Status = "SUBMITTED" };
+        var attempt = new ExamAttempt { Id = 1, ExamId = 10, Status = "SUBMITTED" };
         var gradingResults = new List<GradingResult>
         {
             new() { ExamAttemptId = 1, QuestionId = 5, Score = 3 },
@@ -127,6 +131,38 @@ public class GradingServiceTests
     }
 
     [Fact]
+    public async Task MarkAsGraded_WhenLateSubmission_AppliesPenalty()
+    {
+        var attempt = new ExamAttempt
+        {
+            Id = 1,
+            ExamId = 10,
+            Status = "SUBMITTED",
+            IsLateSubmission = true,
+            LatePenaltyPercent = 20m
+        };
+        var gradingResults = new List<GradingResult>
+        {
+            new() { ExamAttemptId = 1, QuestionId = 5, Score = 3m },
+            new() { ExamAttemptId = 1, QuestionId = 6, Score = 2m }
+        };
+
+        _attemptRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(attempt);
+        _gradingRepoMock.Setup(r => r.GetByAttemptIdAsync(1)).ReturnsAsync(gradingResults);
+        _examSettingsRepoMock.Setup(r => r.GetByExamIdAsync(10)).ReturnsAsync(new ExamSetting
+        {
+            ExamId = 10,
+            LatePenaltyPercent = 20m
+        });
+        _attemptRepoMock.Setup(r => r.UpdateAsync(It.IsAny<ExamAttempt>())).ReturnsAsync(attempt);
+
+        var result = await _service.MarkAsGradedAsync(1);
+
+        result.Success.Should().BeTrue();
+        _attemptRepoMock.Verify(r => r.UpdateAsync(It.Is<ExamAttempt>(a => a.Status == "GRADED" && a.Score == 4m)), Times.Once);
+    }
+
+    [Fact]
     public async Task PublishResult_WhenNotGraded_ReturnsFalse()
     {
         var attempt = new ExamAttempt { Id = 1, Status = "SUBMITTED" };
@@ -141,15 +177,32 @@ public class GradingServiceTests
     [Fact]
     public async Task PublishResult_SetsIsResultPublished()
     {
-        var attempt = new ExamAttempt { Id = 1, Status = "GRADED", Score = 7 };
+        var attempt = new ExamAttempt { Id = 1, ExamId = 10, StudentId = 99, Status = "GRADED", Score = 7 };
         _attemptRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(attempt);
         _attemptRepoMock.Setup(r => r.UpdateAsync(It.IsAny<ExamAttempt>())).ReturnsAsync(attempt);
+        _studentRepoMock.Setup(r => r.GetByIdAsync(99)).ReturnsAsync(new Student { Id = 99, UserId = 1234 });
+        _examRepoMock.Setup(r => r.GetByIdAsync(10)).ReturnsAsync(new Exam { Id = 10, Title = "Midterm" });
+        _notificationServiceMock.Setup(s => s.CreateAsync(
+                It.IsAny<long>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<long?>(),
+                It.IsAny<string?>()))
+            .ReturnsAsync(new NotificationResponse());
 
         var result = await _service.PublishResultAsync(1);
 
         result.Success.Should().BeTrue();
         result.Data!.Published.Should().BeTrue();
         _attemptRepoMock.Verify(r => r.UpdateAsync(It.Is<ExamAttempt>(a => a.IsResultPublished == true)), Times.Once);
+        _notificationServiceMock.Verify(s => s.CreateAsync(
+            1234,
+            "GRADE_PUBLISHED",
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            1,
+            "ExamAttempt"), Times.Once);
     }
 
     [Fact]

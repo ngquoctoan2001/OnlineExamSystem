@@ -1,5 +1,7 @@
 namespace OnlineExamSystem.Domain.Entities;
 
+using System.ComponentModel.DataAnnotations;
+
 // ── Auth & Identity ──────────────────────────────────────────────────────────
 
 public class User
@@ -194,6 +196,10 @@ public class Exam
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
     public int DurationMinutes { get; set; }
+    public int MaxAttemptsAllowed { get; set; } = 1;
+    public int MinutesBetweenRetakes { get; set; }
+    public bool AllowRetakeIfPassed { get; set; }
+    public decimal PassingScore { get; set; } = 50m;
     public int TotalScore { get; set; }
     public DateTime StartTime { get; set; }
     public DateTime EndTime { get; set; }
@@ -227,6 +233,9 @@ public class ExamSetting
     public bool ShuffleAnswers { get; set; }
     public bool ShowResultImmediately { get; set; }
     public bool AllowReview { get; set; }
+    public bool AllowLateSubmission { get; set; }
+    public int GracePeriodMinutes { get; set; }
+    public decimal LatePenaltyPercent { get; set; }
 
     public virtual Exam Exam { get; set; } = null!;
 }
@@ -241,6 +250,11 @@ public class ExamAttempt
     public string Status { get; set; } = string.Empty;
     public decimal? Score { get; set; }
     public bool IsResultPublished { get; set; }
+    public bool IsLateSubmission { get; set; }
+    public decimal LatePenaltyPercent { get; set; }
+
+    [Timestamp]
+    public byte[] RowVersion { get; set; } = Array.Empty<byte>();
 
     public virtual Exam Exam { get; set; } = null!;
     public virtual Student Student { get; set; } = null!;

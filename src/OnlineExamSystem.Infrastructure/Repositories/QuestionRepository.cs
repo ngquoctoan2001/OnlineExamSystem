@@ -95,6 +95,28 @@ public class QuestionRepository : IQuestionRepository
             .ToListAsync();
     }
 
+    public async Task<List<Question>> GetByTeacherAsync(long teacherId)
+    {
+        return await _context.Questions
+            .AsNoTracking()
+            .Include(q => q.Subject)
+            .Include(q => q.QuestionType)
+            .Where(q => q.CreatedBy == teacherId)
+            .OrderByDescending(q => q.CreatedAt)
+            .ToListAsync();
+    }
+
+    public async Task<List<Question>> GetByTeacherAndSubjectAsync(long teacherId, long subjectId)
+    {
+        return await _context.Questions
+            .AsNoTracking()
+            .Include(q => q.Subject)
+            .Include(q => q.QuestionType)
+            .Where(q => q.CreatedBy == teacherId && q.SubjectId == subjectId)
+            .OrderByDescending(q => q.CreatedAt)
+            .ToListAsync();
+    }
+
     public async Task<Question> CreateAsync(Question question)
     {
         _context.Questions.Add(question);

@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
 using OnlineExamSystem.Application.DTOs;
 using OnlineExamSystem.Domain.Entities;
 using OnlineExamSystem.Infrastructure.Repositories;
@@ -9,6 +10,8 @@ public class ExamAttemptService : IExamAttemptService
 {
     private readonly IExamAttemptRepository _examAttemptRepository;
     private readonly IExamRepository _examRepository;
+    private readonly IExamSettingsRepository _examSettingsRepository;
+    private readonly IExamClassRepository _examClassRepository;
     private readonly IStudentRepository _studentRepository;
     private readonly IExamViolationRepository _violationRepository;
     private readonly IAnswerRepository _answerRepository;
@@ -21,6 +24,8 @@ public class ExamAttemptService : IExamAttemptService
     public ExamAttemptService(
         IExamAttemptRepository examAttemptRepository,
         IExamRepository examRepository,
+        IExamSettingsRepository examSettingsRepository,
+        IExamClassRepository examClassRepository,
         IStudentRepository studentRepository,
         IExamViolationRepository violationRepository,
         IAnswerRepository answerRepository,
@@ -32,6 +37,8 @@ public class ExamAttemptService : IExamAttemptService
     {
         _examAttemptRepository = examAttemptRepository;
         _examRepository = examRepository;
+        _examSettingsRepository = examSettingsRepository;
+        _examClassRepository = examClassRepository;
         _studentRepository = studentRepository;
         _violationRepository = violationRepository;
         _answerRepository = answerRepository;
@@ -57,9 +64,70 @@ public class ExamAttemptService : IExamAttemptService
             if (student == null)
                 return (false, "Student not found", null);
 
+            // Enforce exam availability window.
+            var now = DateTime.UtcNow;
+            if (exam.StartTime != default && now < exam.StartTime)
+                return (false, $"Exam starts at {exam.StartTime:yyyy-MM-dd HH:mm} UTC", null);
+
+            if (exam.EndTime != default && now > exam.EndTime)
+                return (false, "Exam window closed", null);
+
+            // Enforce enrollment: student must belong to at least one class assigned to this exam.
+            var studentClassIds = (await _studentRepository.GetStudentClassesAsync(studentId))
+                .Select(cs => cs.ClassId)
+                .Distinct()
+                .ToHashSet();
+
+            var examClassIds = (await _examClassRepository.GetExamClassesAsync(examId))
+                .Select(ec => ec.ClassId)
+                .Distinct()
+                .ToHashSet();
+
+            var isEnrolled = studentClassIds.Overlaps(examClassIds);
+            if (!isEnrolled)
+            {
+                _logger.LogWarning(
+                    "Unauthorized exam attempt start blocked: Student {StudentId} is not assigned to exam {ExamId}",
+                    studentId, examId);
+                return (false, "Student not enrolled for this exam", null);
+            }
+
             var existingAttempt = await _examAttemptRepository.GetStudentExamAttemptAsync(studentId, examId);
             if (existingAttempt != null)
                 return (false, "Student already has an active attempt for this exam", null);
+
+            var examAttempts = await _examAttemptRepository.GetExamAttemptsAsync(examId);
+            var studentAttempts = examAttempts
+                .Where(a => a.StudentId == studentId)
+                .OrderByDescending(a => a.EndTime ?? a.StartTime)
+                .ToList();
+
+            if (exam.MaxAttemptsAllowed > 0 && studentAttempts.Count >= exam.MaxAttemptsAllowed)
+                return (false, $"Maximum attempts reached ({exam.MaxAttemptsAllowed})", null);
+
+            var completedAttempts = studentAttempts
+                .Where(a => !string.Equals(a.Status, "IN_PROGRESS", StringComparison.OrdinalIgnoreCase))
+                .ToList();
+
+            if (!exam.AllowRetakeIfPassed)
+            {
+                var passingScore = Math.Clamp(exam.PassingScore, 0m, 100m);
+                var hasPassed = completedAttempts.Any(a => a.Score.HasValue && a.Score.Value >= passingScore);
+                if (hasPassed)
+                    return (false, "Student already passed this exam and retake is not allowed", null);
+            }
+
+            if (exam.MinutesBetweenRetakes > 0 && completedAttempts.Count > 0)
+            {
+                var lastAttempt = completedAttempts[0];
+                var lastAttemptTime = lastAttempt.EndTime ?? lastAttempt.StartTime;
+                var nextAllowedTime = lastAttemptTime.AddMinutes(exam.MinutesBetweenRetakes);
+                if (now < nextAllowedTime)
+                {
+                    var waitMinutes = Math.Ceiling((nextAllowedTime - now).TotalMinutes);
+                    return (false, $"Must wait {waitMinutes} minute(s) before retaking", null);
+                }
+            }
 
             var attempt = new ExamAttempt
             {
@@ -152,12 +220,18 @@ public class ExamAttemptService : IExamAttemptService
                 // Auto-expire stale IN_PROGRESS attempts whose time has run out
                 if (attempt.Status == "IN_PROGRESS" && exam != null)
                 {
-                    var elapsed = DateTime.UtcNow - attempt.StartTime;
-                    var examEnded = exam.EndTime != default && DateTime.UtcNow > exam.EndTime;
-                    if (elapsed.TotalMinutes > exam.DurationMinutes || examEnded)
+                    var now = DateTime.UtcNow;
+                    var settings = await _examSettingsRepository.GetByExamIdAsync(exam.Id);
+                    var hardDeadline = GetHardDeadline(exam, attempt.StartTime);
+                    var finalDeadline = GetFinalSubmissionDeadline(hardDeadline, settings);
+                    if (now > finalDeadline)
                     {
                         attempt.Status = "SUBMITTED";
-                        attempt.EndTime = attempt.StartTime.AddMinutes(exam.DurationMinutes);
+                        attempt.EndTime = finalDeadline;
+                        attempt.IsLateSubmission = now > hardDeadline;
+                        attempt.LatePenaltyPercent = attempt.IsLateSubmission
+                            ? NormalizePenaltyPercent(settings?.LatePenaltyPercent ?? 0m)
+                            : 0m;
                         await _examAttemptRepository.UpdateAsync(attempt);
                         // Auto-grade what we can
                         var autoScore = await AutoGradeAttemptAsync(attempt);
@@ -226,8 +300,23 @@ public class ExamAttemptService : IExamAttemptService
             if (attempt.Status != "IN_PROGRESS")
                 return (false, "Attempt is not in progress", null);
 
+            var exam = await _examRepository.GetByIdAsync(attempt.ExamId);
+            if (exam == null)
+                return (false, "Exam not found", null);
+
+            var settings = await _examSettingsRepository.GetByExamIdAsync(attempt.ExamId);
+
+            var now = DateTime.UtcNow;
+            var (isAllowed, isLateSubmission, rejectionReason) = EvaluateSubmissionTiming(exam, attempt.StartTime, settings, now);
+            if (!isAllowed)
+                return (false, rejectionReason!, null);
+
             attempt.Status = "SUBMITTED";
-            attempt.EndTime = DateTime.UtcNow;
+            attempt.EndTime = now;
+            attempt.IsLateSubmission = isLateSubmission;
+            attempt.LatePenaltyPercent = isLateSubmission
+                ? NormalizePenaltyPercent(settings?.LatePenaltyPercent ?? 0m)
+                : 0m;
 
             await _examAttemptRepository.UpdateAsync(attempt);
 
@@ -240,13 +329,23 @@ public class ExamAttemptService : IExamAttemptService
             }
 
             await _activityLog.LogAsync(null, "EXAM_SUBMITTED", "ExamAttempt", attempt.Id, $"ExamId: {attempt.ExamId}, StudentId: {attempt.StudentId}");
+            var submitMessage = attempt.IsLateSubmission
+                ? $"Your exam has been submitted late. Penalty applied: {attempt.LatePenaltyPercent:0.##}%"
+                : "Your exam has been submitted";
             return (true, "Exam attempt submitted successfully", new SubmitExamAttemptResponse
             {
                 AttemptId = attempt.Id,
                 Status = attempt.Status,
-                SubmittedAt = attempt.EndTime ?? DateTime.UtcNow,
-                Message = "Your exam has been submitted"
+                SubmittedAt = attempt.EndTime ?? now,
+                IsLateSubmission = attempt.IsLateSubmission,
+                LatePenaltyPercent = attempt.LatePenaltyPercent,
+                Message = submitMessage
             });
+        }
+        catch (DbUpdateConcurrencyException ex)
+        {
+            _logger.LogWarning(ex, "Concurrency conflict when submitting attempt {AttemptId}", attemptId);
+            return (false, "Attempt was modified by another process. Please reload and try again.", null);
         }
         catch (Exception ex)
         {
@@ -259,6 +358,7 @@ public class ExamAttemptService : IExamAttemptService
     {
         try
         {
+            var settings = await _examSettingsRepository.GetByExamIdAsync(attempt.ExamId);
             var examQuestions = await _examQuestionRepository.GetExamQuestionsAsync(attempt.ExamId);
             var answers = await _answerRepository.GetByAttemptIdAsync(attempt.Id);
             var answerMap = answers.ToDictionary(a => a.QuestionId);
@@ -311,7 +411,10 @@ public class ExamAttemptService : IExamAttemptService
                 anyAutoGraded = true;
             }
 
-            return anyAutoGraded ? totalScore : null;
+            if (!anyAutoGraded)
+                return null;
+
+            return ApplyLatePenalty(totalScore, attempt, settings);
         }
         catch (Exception ex)
         {
@@ -449,5 +552,70 @@ public class ExamAttemptService : IExamAttemptService
             _logger.LogError(ex, "Error logging violation for attempt {AttemptId}", attemptId);
             return (false, $"Error: {ex.Message}", null);
         }
+    }
+
+    private static decimal ApplyLatePenalty(decimal rawScore, ExamAttempt attempt, ExamSetting? settings)
+    {
+        if (!attempt.IsLateSubmission)
+            return rawScore;
+
+        var penaltyPercent = NormalizePenaltyPercent(attempt.LatePenaltyPercent > 0m
+            ? attempt.LatePenaltyPercent
+            : settings?.LatePenaltyPercent ?? 0m);
+
+        if (penaltyPercent <= 0m)
+            return rawScore;
+
+        return decimal.Round(rawScore * (1m - (penaltyPercent / 100m)), 2, MidpointRounding.AwayFromZero);
+    }
+
+    private static decimal NormalizePenaltyPercent(decimal penaltyPercent)
+    {
+        return Math.Clamp(penaltyPercent, 0m, 100m);
+    }
+
+    private static DateTime GetHardDeadline(Exam exam, DateTime attemptStartTime)
+    {
+        var byDuration = exam.DurationMinutes > 0
+            ? attemptStartTime.AddMinutes(exam.DurationMinutes)
+            : DateTime.MaxValue;
+
+        var byExamWindow = exam.EndTime != default
+            ? exam.EndTime
+            : DateTime.MaxValue;
+
+        return byDuration < byExamWindow ? byDuration : byExamWindow;
+    }
+
+    private static DateTime GetFinalSubmissionDeadline(DateTime hardDeadline, ExamSetting? settings)
+    {
+        if (settings?.AllowLateSubmission != true)
+            return hardDeadline;
+
+        var grace = Math.Max(0, settings.GracePeriodMinutes);
+        return hardDeadline.AddMinutes(grace);
+    }
+
+    private static (bool IsAllowed, bool IsLateSubmission, string? RejectionReason) EvaluateSubmissionTiming(
+        Exam exam,
+        DateTime attemptStartTime,
+        ExamSetting? settings,
+        DateTime now)
+    {
+        if (exam.StartTime != default && now < exam.StartTime)
+            return (false, false, "Exam has not started yet");
+
+        var hardDeadline = GetHardDeadline(exam, attemptStartTime);
+        if (now <= hardDeadline)
+            return (true, false, null);
+
+        if (settings?.AllowLateSubmission != true)
+            return (false, false, "Exam duration exceeded");
+
+        var finalDeadline = GetFinalSubmissionDeadline(hardDeadline, settings);
+        if (now > finalDeadline)
+            return (false, false, "Late submission window has closed");
+
+        return (true, true, null);
     }
 }

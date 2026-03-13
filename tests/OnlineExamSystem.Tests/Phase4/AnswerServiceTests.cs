@@ -13,6 +13,8 @@ public class AnswerServiceTests
 {
     private readonly Mock<IAnswerRepository> _answerRepoMock = new();
     private readonly Mock<IExamAttemptRepository> _attemptRepoMock = new();
+    private readonly Mock<IExamRepository> _examRepoMock = new();
+    private readonly Mock<IExamSettingsRepository> _examSettingsRepoMock = new();
     private readonly Mock<IExamQuestionRepository> _examQuestionRepoMock = new();
     private readonly Mock<IQuestionRepository> _questionRepoMock = new();
     private readonly Mock<IQuestionOptionRepository> _optionRepoMock = new();
@@ -24,10 +26,23 @@ public class AnswerServiceTests
         _service = new AnswerService(
             _answerRepoMock.Object,
             _attemptRepoMock.Object,
+            _examRepoMock.Object,
+            _examSettingsRepoMock.Object,
             _examQuestionRepoMock.Object,
             _questionRepoMock.Object,
             _optionRepoMock.Object,
             _loggerMock.Object);
+    }
+
+    private void SetupExamWindow(long examId = 10)
+    {
+        _examRepoMock.Setup(r => r.GetByIdAsync(examId)).ReturnsAsync(new Exam
+        {
+            Id = examId,
+            StartTime = DateTime.UtcNow.AddHours(-1),
+            EndTime = DateTime.UtcNow.AddHours(1),
+            DurationMinutes = 120
+        });
     }
 
     [Fact]
@@ -55,10 +70,11 @@ public class AnswerServiceTests
     [Fact]
     public async Task SubmitAnswer_WhenNewAnswer_CreatesAndReturnsSuccess()
     {
-        var attempt = new ExamAttempt { Id = 1, Status = "IN_PROGRESS" };
+        var attempt = new ExamAttempt { Id = 1, ExamId = 10, StartTime = DateTime.UtcNow, Status = "IN_PROGRESS" };
         var answer = new Answer { Id = 10, ExamAttemptId = 1, QuestionId = 5, AnswerOptions = new List<AnswerOption>() };
 
         _attemptRepoMock.Setup(r => r.GetByIdAsync(1)).ReturnsAsync(attempt);
+        SetupExamWindow(10);
         _answerRepoMock.Setup(r => r.GetByAttemptAndQuestionAsync(1, 5)).ReturnsAsync((Answer?)null);
         _answerRepoMock.Setup(r => r.CreateAsync(It.IsAny<Answer>())).ReturnsAsync(answer);
         _answerRepoMock.Setup(r => r.GetByAttemptAndQuestionAsync(1, 5)).ReturnsAsync(answer);
