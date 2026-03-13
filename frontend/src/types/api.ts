@@ -134,6 +134,7 @@ export interface QuestionResponse {
   isPublished: boolean
   createdAt: string
   optionCount: number
+  tags: TagResponse[]
 }
 
 export interface QuestionDetailResponse extends QuestionResponse {
@@ -155,6 +156,7 @@ export interface CreateQuestionRequest {
   content: string
   difficulty: string
   options: CreateQuestionOptionRequest[]
+  tagIds?: number[]
 }
 
 export interface CreateQuestionOptionRequest {
@@ -169,6 +171,7 @@ export interface UpdateQuestionRequest {
   difficulty: string
   isPublished: boolean
   options: CreateQuestionOptionRequest[]
+  tagIds?: number[]
 }
 
 export interface QuestionListResponse {

@@ -18,6 +18,7 @@ public class CreateQuestionRequest
     public string Difficulty { get; set; } = "MEDIUM";
 
     public List<CreateQuestionOptionRequest> Options { get; set; } = new();
+    public List<long>? TagIds { get; set; }
 }
 
 public class UpdateQuestionRequest
@@ -31,6 +32,7 @@ public class UpdateQuestionRequest
 
     public bool IsPublished { get; set; }
     public List<CreateQuestionOptionRequest> Options { get; set; } = new();
+    public List<long>? TagIds { get; set; }
 }
 
 public class QuestionResponse
@@ -45,6 +47,7 @@ public class QuestionResponse
     public bool IsPublished { get; set; }
     public DateTime CreatedAt { get; set; }
     public int OptionCount { get; set; }
+    public List<TagResponse> Tags { get; set; } = new();
 }
 
 public class QuestionDetailResponse
@@ -59,6 +62,7 @@ public class QuestionDetailResponse
     public bool IsPublished { get; set; }
     public DateTime CreatedAt { get; set; }
     public List<QuestionOptionResponse> Options { get; set; } = new();
+    public List<TagResponse> Tags { get; set; } = new();
 }
 
 public class QuestionListResponse

@@ -62,6 +62,12 @@ public class QuestionService : IQuestionService
                 await _optionRepository.CreateBatchAsync(options);
             }
 
+            if (request.TagIds?.Any() == true)
+            {
+                foreach (var tagId in request.TagIds)
+                    await _tagRepository.AssignTagToQuestionAsync(question.Id, tagId);
+            }
+
             return (true, "Question created successfully", await GetQuestionDetailResponseAsync(question));
         }
         catch (Exception ex)
@@ -227,6 +233,15 @@ public class QuestionService : IQuestionService
                 }).ToList();
 
                 await _optionRepository.CreateBatchAsync(options);
+            }
+
+            if (request.TagIds != null)
+            {
+                var existingTags = await _tagRepository.GetTagsByQuestionAsync(questionId);
+                foreach (var t in existingTags)
+                    await _tagRepository.RemoveTagFromQuestionAsync(questionId, t.Id);
+                foreach (var tagId in request.TagIds)
+                    await _tagRepository.AssignTagToQuestionAsync(questionId, tagId);
             }
 
             return (true, "Question updated successfully", await GetQuestionDetailResponseAsync(question));
@@ -463,6 +478,7 @@ public class QuestionService : IQuestionService
 
     private async Task<QuestionDetailResponse> GetQuestionDetailResponseAsync(Question question)    {
         var options = await _optionRepository.GetByQuestionIdAsync(question.Id);
+        var tags = await _tagRepository.GetTagsByQuestionAsync(question.Id);
         return new QuestionDetailResponse
         {
             Id = question.Id,
@@ -482,6 +498,13 @@ public class QuestionService : IQuestionService
                 Content = o.Content,
                 IsCorrect = o.IsCorrect,
                 OrderIndex = o.OrderIndex
+            }).ToList(),
+            Tags = tags.Select(t => new TagResponse
+            {
+                Id = t.Id,
+                Name = t.Name,
+                Description = t.Description,
+                CreatedAt = t.CreatedAt
             }).ToList()
         };
     }
@@ -492,6 +515,7 @@ public class QuestionService : IQuestionService
         foreach (var question in questions)
         {
             var optionCount = await _optionRepository.GetCountByQuestionIdAsync(question.Id);
+            var tags = await _tagRepository.GetTagsByQuestionAsync(question.Id);
             responses.Add(new QuestionResponse
             {
                 Id = question.Id,
@@ -503,7 +527,14 @@ public class QuestionService : IQuestionService
                 Difficulty = question.Difficulty,
                 IsPublished = question.IsPublished,
                 CreatedAt = question.CreatedAt,
-                OptionCount = optionCount
+                OptionCount = optionCount,
+                Tags = tags.Select(t => new TagResponse
+                {
+                    Id = t.Id,
+                    Name = t.Name,
+                    Description = t.Description,
+                    CreatedAt = t.CreatedAt
+                }).ToList()
             });
         }
         return responses;

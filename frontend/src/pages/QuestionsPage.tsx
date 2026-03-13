@@ -25,6 +25,7 @@ interface FormState {
   difficulty: string
   correctAnswer: string
   options: { label: string; content: string; isCorrect: boolean; orderIndex: number }[]
+  tagIds: number[]
 }
 
 const defaultOptions = () => [
@@ -40,7 +41,7 @@ const trueFalseOptions = () => [
 ]
 
 const emptyForm = (): FormState => ({
-  subjectId: 0, questionTypeId: 1, content: '', difficulty: 'MEDIUM', correctAnswer: '', options: defaultOptions()
+  subjectId: 0, questionTypeId: 1, content: '', difficulty: 'MEDIUM', correctAnswer: '', options: defaultOptions(), tagIds: []
 })
 
 export default function QuestionsPage() {
@@ -171,6 +172,7 @@ export default function QuestionsPage() {
       const selectedType = qTypes.find(t => t.id === detail.questionTypeId)
       const typeName = selectedType?.name || 'MCQ'
       const isMCQ = typeName === 'MCQ' || typeName === 'TRUE_FALSE'
+      const existingTagIds = detail.tags?.map(t => t.id) || []
       setForm({
         subjectId: detail.subjectId,
         questionTypeId: detail.questionTypeId,
@@ -185,6 +187,7 @@ export default function QuestionsPage() {
               orderIndex: o.orderIndex,
             }))
           : typeName === 'TRUE_FALSE' ? trueFalseOptions() : defaultOptions(),
+        tagIds: existingTagIds,
       })
       setError('')
       setModal('edit')
@@ -227,6 +230,7 @@ export default function QuestionsPage() {
           difficulty: form.difficulty,
           isPublished: false,
           options: optionsPayload,
+          tagIds: form.tagIds,
         }
         await questionsApi.update(editId, payload)
       } else {
@@ -236,6 +240,7 @@ export default function QuestionsPage() {
           content: form.content,
           difficulty: form.difficulty,
           options: optionsPayload,
+          tagIds: form.tagIds,
         }
         await questionsApi.create(payload)
       }
@@ -419,6 +424,7 @@ export default function QuestionsPage() {
                   <th>Loại</th>
                   <th>Độ khó</th>
                   <th>Lựa chọn</th>
+                  <th>Tags</th>
                   <th>Trạng thái</th>
                   <th>Ngày tạo</th>
                   <th></th>
@@ -439,6 +445,13 @@ export default function QuestionsPage() {
                       <td><span className="badge badge-purple">{typeLabel[q.questionTypeName || ''] || q.questionTypeName || '—'}</span></td>
                       <td><span className={`badge ${diff.cls}`}>{diff.text}</span></td>
                       <td>{q.optionCount} lựa chọn</td>
+                      <td>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {(q.tags || []).map(t => (
+                            <span key={t.id} className="badge badge-blue" style={{ fontSize: 11 }}>{t.name}</span>
+                          ))}
+                        </div>
+                      </td>
                       <td>
                         {q.isPublished
                           ? <span className="badge badge-green">Đã xuất bản</span>
@@ -541,6 +554,41 @@ export default function QuestionsPage() {
                     <option value="MEDIUM">Trung bình</option>
                     <option value="HARD">Khó</option>
                   </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Tags</label>
+                  <select
+                    className="form-control"
+                    value=""
+                    onChange={e => {
+                      const tagId = Number(e.target.value)
+                      if (tagId && !form.tagIds.includes(tagId)) {
+                        setForm(f => ({ ...f, tagIds: [...f.tagIds, tagId] }))
+                      }
+                    }}
+                  >
+                    <option value="">Chọn tag...</option>
+                    {allTags.filter(t => !form.tagIds.includes(t.id)).map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                  {form.tagIds.length > 0 && (
+                    <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+                      {form.tagIds.map(tid => {
+                        const tag = allTags.find(t => t.id === tid)
+                        return tag ? (
+                          <span key={tid} className="badge badge-blue" style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            {tag.name}
+                            <span
+                              className="material-icons"
+                              style={{ fontSize: 14, cursor: 'pointer', opacity: 0.7 }}
+                              onClick={() => setForm(f => ({ ...f, tagIds: f.tagIds.filter(id => id !== tid) }))}
+                            >close</span>
+                          </span>
+                        ) : null
+                      })}
+                    </div>
+                  )}
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Nội dung câu hỏi *</label>
