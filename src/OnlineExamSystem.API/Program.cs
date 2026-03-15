@@ -150,6 +150,7 @@ builder.Services.AddScoped<ISubjectExamTypeRepository, SubjectExamTypeRepository
 // Import services
 builder.Services.AddScoped<IExcelParserService, ExcelParserService>();
 builder.Services.AddScoped<IImportService, ImportService>();
+builder.Services.AddScoped<IPdfImportService, PdfImportService>();
 
 // Services
 builder.Services.AddScoped<ITeacherService, TeacherService>();
